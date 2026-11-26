@@ -1,7 +1,7 @@
 // נקודת כניסה: טעינה, לולאה, סצנות
 import { G, initCanvas, loadImages, beginUI, updateFx, clamp } from './engine.js';
 import { load, S, save } from './save.js';
-import { initAudio, setMuted } from './audio.js';
+import { initAudio, setMuted, audioPause } from './audio.js';
 import { register, go, drawFade } from './game.js';
 import { arsState } from './scenes/ars.js';
 import './scenes/savta.js';
@@ -22,7 +22,7 @@ async function boot() {
   register('hub', hub); register('shop', shop); register('tavern', tavern);
   G.onFirstInput = () => initAudio();
   addEventListener('pointerdown', () => initAudio(), { once: false });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) save(true); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) save(true); audioPause(document.hidden); });
   addEventListener('pagehide', () => save(true));
   const ld = document.getElementById('loading'); if (ld) ld.remove();
   if (location.hash.includes('dev')) window.__T = { G, S: () => S, go, tav, ars: arsState, hub: hubState, dome: domeState, box: boxState };

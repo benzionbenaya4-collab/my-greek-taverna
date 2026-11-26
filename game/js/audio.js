@@ -11,11 +11,12 @@ export function initAudio() {
     master = ac.createGain(); master.gain.value = muted ? 0 : 0.9; master.connect(ac.destination);
     const comp = ac.createDynamicsCompressor(); comp.connect(master);
     sfxG = ac.createGain(); sfxG.gain.value = 0.8; sfxG.connect(comp);
-    musG = ac.createGain(); musG.gain.value = 0.32; musG.connect(comp);
+    musG = ac.createGain(); musG.gain.value = 0.32 * mus.vol; musG.connect(comp);
     noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   } catch (e) { ac = null; }
+  if (ac && mus.want) musicStart();
 }
 export function setMuted(m) {
   muted = m;
@@ -160,13 +161,20 @@ function tick() {
   }
 }
 export function musicStart(tempo) {
-  if (!ac) return;
   if (tempo) mus.tempo = tempo;
+  mus.want = true;
+  if (!ac) return;
   if (mus.on) return;
   mus.on = true; mus.step = 0; mus.next = ac.currentTime + 0.1;
   clearInterval(mus.timer); mus.timer = setInterval(tick, 40);
 }
-export function musicStop() { mus.on = false; clearInterval(mus.timer); }
+export function musicStop() { mus.on = false; mus.want = false; clearInterval(mus.timer); }
 export function musicTempo(bpm) { mus.tempo = Math.max(60, Math.min(220, bpm)); }
-export function musicVolume(v) { if (musG) musG.gain.setTargetAtTime(0.32 * v, ac.currentTime, 0.1); }
+export function musicVolume(v) { mus.vol = v; if (musG && ac) musG.gain.setTargetAtTime(0.32 * v, ac.currentTime, 0.1); }
 export const musicOn = () => mus.on;
+
+// השהיה כשהאפליקציה ברקע
+export function audioPause(p) {
+  if (!ac) return;
+  try { if (p) ac.suspend(); else ac.resume(); } catch (e) { /* ignore */ }
+}
