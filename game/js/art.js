@@ -321,6 +321,18 @@ export function drawTavernBg(w, h, wallBase) {
   speckle(x, 0, wb, w, h - wb, ['#b8854b', '#94622f'], rng, 0.05);
   // צל מתחת לקיר
   x.fillStyle = 'rgba(40,20,0,0.18)'; x.fillRect(0, wb, w, 5);
+  // שטיח יווני במרכז
+  const rx0 = Math.round(w * 0.16), rx1 = Math.round(w * 0.84), ry0 = wb + 22, ry1 = h - 38;
+  if (ry1 - ry0 > 30) {
+    R(x, rx0 - 1, ry0 - 1, rx1 - rx0 + 2, ry1 - ry0 + 2, '#5a1a12');
+    R(x, rx0, ry0, rx1 - rx0, ry1 - ry0, '#a8322a');
+    R(x, rx0 + 6, ry0 + 6, rx1 - rx0 - 12, ry1 - ry0 - 12, '#c44a36');
+    speckle(x, rx0 + 6, ry0 + 6, rx1 - rx0 - 12, ry1 - ry0 - 12, ['#b83e30', '#d0583f'], rng, 0.08);
+    for (let mx = rx0 + 1; mx < rx1 - 6; mx += 6) for (const yy of [ry0 + 1, ry1 - 5]) { R(x, mx, yy, 4, 1, '#f2e2b0'); R(x, mx + 3, yy, 1, 3, '#f2e2b0'); R(x, mx + 1, yy + 2, 3, 1, '#f2e2b0'); }
+    for (let my = ry0 + 6; my < ry1 - 6; my += 6) for (const xx of [rx0 + 1, rx1 - 5]) { R(x, xx, my, 1, 4, '#f2e2b0'); R(x, xx, my + 3, 3, 1, '#f2e2b0'); R(x, xx + 2, my + 1, 1, 3, '#f2e2b0'); }
+    const mcx = (rx0 + rx1) / 2, mcy = (ry0 + ry1) / 2;
+    for (let i = -2; i <= 2; i++) R(x, mcx - 14 + Math.abs(i) * 4, mcy + i * 3, 28 - Math.abs(i) * 8, 2, '#f2e2b0');
+  }
   // חביות ועציצים בצדדים
   const barrel = (bx, by) => {
     R(x, bx - 10, by - 24, 20, 24, '#8a5a2b'); R(x, bx - 11, by - 20, 22, 2, '#3a3a44'); R(x, bx - 11, by - 7, 22, 2, '#3a3a44');
@@ -443,4 +455,24 @@ export function drawStars(ctx, x, y, t, n = 4) {
     ctx.fillStyle = '#1a1020'; ctx.fillRect(sx - 4, sy - 2, 8, 4); ctx.fillRect(sx - 2, sy - 4, 4, 8);
     ctx.fillStyle = '#ffe14d'; ctx.fillRect(sx - 3, sy - 1, 6, 2); ctx.fillRect(sx - 1, sy - 3, 2, 6);
   }
+}
+
+// השף בלי המגן (אחרי שנשבר): מחליף את פיקסלי המכסה בבגד שף לבן – הקובץ המקורי לא משתנה
+export function bossVariants(img) {
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+  const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+  const d = x.getImageData(0, 0, c.width, c.height), p = d.data;
+  let minX = 1e9, maxX = -1, minY = 1e9, maxY = -1;
+  for (let i = 0; i < p.length; i += 4) {
+    const r = p[i], g = p[i + 1], b = p[i + 2], a = p[i + 3];
+    const px = (i / 4) % c.width, py = Math.floor(i / 4 / c.width);
+    if (a > 0 && px >= 30 && g > r + 25 && b > r + 10) {
+      minX = Math.min(minX, px); maxX = Math.max(maxX, px); minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+      const l = (r + g + b) / 3;
+      const [nr, ng, nb] = l < 100 ? [74, 74, 85] : l < 135 ? [201, 201, 212] : (px + py) % 7 === 0 ? [214, 214, 224] : [236, 236, 242];
+      p[i] = nr; p[i + 1] = ng; p[i + 2] = nb;
+    }
+  }
+  x.putImageData(d, 0, 0);
+  return { broken: c, shield: { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, r: (maxX - minX) / 2 } };
 }

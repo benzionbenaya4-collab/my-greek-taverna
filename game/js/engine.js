@@ -280,6 +280,7 @@ export function drawFx(ctx) {
     const a = 1 - f.t / f.life;
     if (f.k === 'text') txt(ctx, f.s, f.x, f.y, { size: f.size, color: f.color, alpha: Math.min(1, a * 2) });
     else if (f.k === 'bit') { ctx.globalAlpha = Math.min(1, a * 2); ctx.fillStyle = f.c; ctx.fillRect(Math.round(f.x), Math.round(f.y), f.sz, f.sz); ctx.globalAlpha = 1; }
+    else if (f.k === 'ghost') sprite(ctx, f.img, f.x, f.y, { alpha: a * 0.35, flip: f.flip });
     else if (f.k === 'ring') {
       ctx.strokeStyle = f.c; ctx.globalAlpha = a; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (0.3 + f.t / f.life), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
