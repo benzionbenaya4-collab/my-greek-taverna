@@ -88,7 +88,7 @@ export class Talk {
     const c = this.cur; if (!c) return;
     const p = posOf(c.who, c.ref); if (!p) return;
     const a = Math.min(1, c.t * 6, (c.dur - c.t) * 4);
-    bubble(ctx, c.text, p.x, p.y, { name: NAMES[c.who], alpha: a, size: G.portrait ? 19 : 17, maxW: G.portrait ? 330 : 300, nameBg: NAME_BG[c.who] || '#1d4fa3' });
+    bubble(ctx, c.text, p.x, p.y, { name: NAMES[c.who], alpha: a, size: clamp(Math.round(14 / G.scale), 17, 24), maxW: Math.min(G.W - 40, G.portrait ? 360 : 330), nameBg: NAME_BG[c.who] || '#1d4fa3' });
   }
 }
 

@@ -141,8 +141,9 @@ export const hub = {
     for (const p of st.enemy) drawPlate(ctx, p.img, p.x, p.y, p.spin);
     drawFx(ctx);
     // בועות דיבור
-    st.talk.draw(ctx, (w, ref) => ref ? { x: ref.x, y: ref.y - 102 } : w === 'ars' ? { x: a.x, y: a.y - 100 } : w === 'savta' ? (st.savtaAtSeat ? { x: savtaSeat().x, y: savtaSeat().y - 100 } : { x: savtaBench().x, y: savtaBench().y - 100 }) : { x: st.px, y: st.py - 102 });
     ctx.restore();
+    // בועות דיבור בקואורדינטות מסך (כדי שלא ייחתכו בקצוות)
+    st.talk.draw(ctx, (w, ref) => toScreen(ref ? { x: ref.x, y: ref.y - 102 } : w === 'ars' ? { x: a.x, y: a.y - 100 } : w === 'savta' ? (st.savtaAtSeat ? { x: savtaSeat().x, y: savtaSeat().y - 100 } : { x: savtaBench().x, y: savtaBench().y - 100 }) : { x: st.px, y: st.py - 102 }));
 
     // HUD
     if (st.hitFlash > 0) { ctx.fillStyle = `rgba(255,40,40,${st.hitFlash * 0.45})`; ctx.fillRect(0, 0, G.W, G.H); }
@@ -166,8 +167,8 @@ export const hub = {
       const dx = j.x - j.bx, dy = j.y - j.by, l = Math.hypot(dx, dy), k = l > 48 ? 48 / l : 1;
       ctx.globalAlpha = 0.85; ctx.fillStyle = '#1d4fa3'; ctx.beginPath(); ctx.arc(j.bx + dx * k, j.by + dy * k, 22, 0, Math.PI * 2); ctx.fill();
       ctx.globalAlpha = 1;
-    } else if (G.t < 6 && !st.moving) {
-      txt(ctx, FINE ? 'WASD / חיצים כדי ללכת • E לפעולה' : 'גרור על המסך כדי ללכת', G.W / 2, G.H * 0.5, { size: 18, alpha: 0.8 });
+    } else if (G.t < 7 && !st.moving && !st.talk.cur) {
+      txt(ctx, FINE ? 'WASD / חיצים ללכת • E או רווח = Ⓐ' : 'גרור על המסך כדי ללכת • נגיעה בדמות = דיבור', G.W / 2, G.portrait ? 106 : 62, { size: 18, alpha: 0.8 });
     }
     drawBanners(ctx, dt);
   },
@@ -421,3 +422,5 @@ function drawNpc(ctx, c) {
     txt(ctx, 'A', c.x, y, { size: 14, color: '#1a1020', outline: false });
   }
 }
+
+function toScreen(p) { return p ? { x: p.x - st.camX, y: p.y } : p; }
