@@ -72,10 +72,12 @@ export function drawBanners(ctx, dt) {
 }
 
 // ---------- דיבור ----------
+const NAME_BG = { ars: '#8a3a2a', savta: '#a01e6a', boss: '#5a2e14', thief: '#3a3a55', dine: '#2d4a7a', grease: '#4a7a1a', waiter: '#5a5a5a', host: '#1d4fa3' };
 export class Talk {
   constructor() { this.q = []; this.cur = null; }
-  say(who, text, dur) { this.q.push({ who, text, dur: dur || clamp(1.4 + text.length * 0.06, 2.2, 6.5), t: 0 }); }
-  now(who, text, dur) { this.q = []; this.cur = null; this.say(who, text, dur); this.update(0); }
+  say(who, text, dur, ref) { this.q.push({ who, text, ref, dur: dur || clamp(1.4 + text.length * 0.06, 2.2, 6.5), t: 0 }); }
+  now(who, text, dur, ref) { this.q = []; this.cur = null; this.say(who, text, dur, ref); this.update(0); }
+  next() { if (this.cur) { this.cur = null; this.update(0); return true; } return false; }
   clear() { this.q = []; this.cur = null; }
   get busy() { return !!this.cur || this.q.length > 0; }
   update(dt) {
@@ -84,9 +86,9 @@ export class Talk {
   }
   draw(ctx, posOf) {
     const c = this.cur; if (!c) return;
-    const p = posOf(c.who); if (!p) return;
+    const p = posOf(c.who, c.ref); if (!p) return;
     const a = Math.min(1, c.t * 6, (c.dur - c.t) * 4);
-    bubble(ctx, c.text, p.x, p.y, { name: NAMES[c.who], alpha: a, nameBg: c.who === 'ars' ? '#8a3a2a' : c.who === 'savta' ? '#a01e6a' : '#1d4fa3' });
+    bubble(ctx, c.text, p.x, p.y, { name: NAMES[c.who], alpha: a, size: G.portrait ? 19 : 17, maxW: G.portrait ? 330 : 300, nameBg: NAME_BG[c.who] || '#1d4fa3' });
   }
 }
 

@@ -5,7 +5,7 @@ import { S, save } from '../save.js';
 import { sfx } from '../audio.js';
 import { earn, canPay } from '../game.js';
 import { ARS } from '../lines.js';
-import { addHook, targets, hittable, hitVillain, enemyThrow, floor } from './tavern.js';
+import { addHook, targets, enemyThrow, floor, allItems, itemPos, breakItem } from './tavern.js';
 
 const A = { on: false };
 
@@ -33,6 +33,7 @@ function pay(st) {
 function startAlly(st) {
   A.mode = 'ally'; A.allyT = 22; A.throwT = 0.6;
   st.talk.now('ars', ARS.paid, 2.8);
+  st.talk.say('ars', 'יאללה, נשבור להם את המדפים!', 2);
 }
 
 function onHit(st, p) {
@@ -100,31 +101,16 @@ addHook({
     }
     if (A.mode === 'ally') {
       A.allyT -= dt;
-      if (A.punch) {
-        const v = A.punch.v;
-        if (!hittable(v) || v.state === 'ko') A.punch = null;
-        else if (Math.abs(A.x - (v.x - 46 * Math.sign(v.x - A.x || 1))) < 8 && Math.abs(A.y - v.y) < 10) {
-          // בוקס!
-          sfx.punch(); G.shake = 0.3;
-          burst(v.x, v.y - 70, ['#ffe14d', '#ffffff'], 16);
-          floater(pick(ARS.punch), v.x, v.y - 120, { size: 28, color: '#ff8a5a' });
-          v.state = 'ko'; v.koT = 4.5; v.koSide = A.x < v.x ? 1 : -1; v.t = 0; v.flash = 1;
-          sfx.stars();
-          A.punch = null;
-          earn(5, v.x, v.y - 150, 'בוקס! +$5');
-        }
-      } else {
-        A.throwT -= dt;
-        if (A.throwT <= 0) {
-          A.throwT = rnd(0.9, 1.4);
-          const vs = st.v.filter((v) => hittable(v) && v.state !== 'ko' && v.type !== 'waiter' && v.x > 20 && v.x < G.W - 20);
-          const thief = vs.find((v) => v.type === 'thief');
-          if (thief && Math.random() < 0.4) { A.punch = { v: thief }; st.talk.now('ars', 'אתה! בוא הנה!', 1.4); }
-          else if (vs.length) {
-            const v = pick(vs);
-            A.plates.push({ x: A.x, y: A.y - 70, v, spin: 0, img: plateCanvas('white') });
-            sfx.throw();
-          }
+      A.throwT -= dt;
+      if (A.throwT <= 0) {
+        A.throwT = rnd(0.8, 1.3);
+        const items = allItems();
+        if (items.length) {
+          // לפעמים הוא מכוון דווקא לנוצץ
+          const it = st.special && st.special.alive && Math.random() < 0.35 ? st.special : pick(items);
+          A.plates.push({ x: A.x, y: A.y - 70, it, spin: 0, img: plateCanvas('white') });
+          sfx.throw();
+          if (Math.random() < 0.15) st.talk.now('ars', pick(['קח, מדף!', 'בואנה, זה בשבילך!', 'וואלה בול!']), 1.3);
         }
       }
       if (A.allyT <= 0) { A.mode = 'calm'; st.talk.now('ars', 'יאללה, עשיתי את שלי. אני הולך לשתות קפה.', 2.4); A.leaving = true; }
@@ -132,11 +118,11 @@ addHook({
     // צלחות של הערס (עוזר)
     for (const p of A.plates) {
       p.spin += dt * 18;
-      const tx2 = p.v.x, ty2 = p.v.y - 80, ddx = tx2 - p.x, ddy = ty2 - p.y, ll = Math.hypot(ddx, ddy), step = 900 * dt;
+      const q = itemPos(p.it), ddx = q.x - p.x, ddy = q.y - p.y, ll = Math.hypot(ddx, ddy), step = 900 * dt;
       if (ll <= step) {
         p.dead = true;
-        if (hittable(p.v)) hitVillain(p.v, { P: PLATES.white }, tx2, ty2 + 6, true);
-        else { sfx.break(); burst(tx2, ty2, ['#ffffff', '#c8d2dc'], 10); }
+        if (p.it.alive) breakItem(p.it, PLATES.white);
+        else { sfx.break(); burst(q.x, q.y, ['#ffffff', '#c8d2dc'], 10); }
       } else { p.x += (ddx / ll) * step; p.y += (ddy / ll) * step; }
     }
     A.plates = A.plates.filter((p) => !p.dead);

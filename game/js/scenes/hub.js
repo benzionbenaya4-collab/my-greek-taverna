@@ -4,7 +4,7 @@ import { drawStreet, benchFront, HUB, plateCanvas, drawPlate, drawStars } from '
 import { S, save } from '../save.js';
 import { sfx, musicStart, musicTempo, musicVolume } from '../audio.js';
 import { go, hud, earn, canPay, Talk, actionBar, banner, drawBanners } from '../game.js';
-import { BENCH_TALK, ARS, SAVTA, HUB_HINT, SEAT_LINES, OUCH } from '../lines.js';
+import { BENCH_TALK, ARS, SAVTA, HUB_HINT, SEAT_LINES, OUCH, NPC, NAMES } from '../lines.js';
 
 const SPEED = 230;
 const FINE = typeof matchMedia !== 'undefined' && matchMedia('(pointer:fine)').matches;
@@ -37,12 +37,27 @@ export const hub = {
     st.hitFlash = 0;
     st.gulls = Array.from({ length: 4 }, () => ({ x: rnd(0, HUB.W), y: rnd(30, GY - 260), v: rnd(30, 60), p: rnd(0, 6) }));
     st.seatT = 0;
+    st.npcs = [
+      { id: 'boss', x: HUB.tavern + 180, y: GY + 34, idx: 0, t: 0 },
+      { id: 'grease', x: HUB.bench - 250, y: GY + 64, idx: 0, t: 0 },
+      { id: 'thief', x: HUB.shop - 290, y: GY + 30, idx: 0, t: 0 },
+      { id: 'dine', x: HUB.seat - 150, y: GY + 12, idx: 0, t: 0 },
+      { id: 'waiter', x: HUB.seat + 160, y: GY + 54, idx: 0, t: 0, walk: true, dir: -1, x0: HUB.seat - 260, x1: HUB.seat + 280 },
+    ];
+    for (const c of st.npcs) c.dy = c.y - GY;
     st.camX = clamp(st.px - G.W / 2, 0, Math.max(0, HUB.W - G.W));
     musicStart(84); musicTempo(84); musicVolume(0.55);
   },
-  resize() { rebuild(); st.py = clamp(st.py, GY + 34, G.H - 8); },
+  resize() { rebuild(); st.py = clamp(st.py, GY + 34, G.H - 8); for (const c of st.npcs || []) c.y = GY + c.dy; },
 
-  down(p) { st.joy = { id: p.id, bx: p.x, by: p.y, x: p.x, y: p.y }; },
+  down(p) {
+    // נגיעה בדמות = לדבר איתה
+    const wx = p.x + st.camX, wy = p.y;
+    const who = speakers().find((c) => Math.abs(wx - c.x) < 30 && wy > c.y - 100 && wy < c.y + 4 && Math.abs(st.px - c.x) < 320);
+    if (who && !st.dodge) { talkTo(who); return; }
+    if (st.talk.cur && Math.abs(wx - st.px) < 60 && wy > st.py - 100 && wy < st.py) { st.talk.next(); return; }
+    st.joy = { id: p.id, bx: p.x, by: p.y, x: p.x, y: p.y };
+  },
   move(p) { if (st.joy && st.joy.id === p.id) { st.joy.x = p.x; st.joy.y = p.y; } },
   up(p) { if (st.joy && st.joy.id === p.id) st.joy = null; },
   key(code) {
@@ -87,6 +102,13 @@ export const hub = {
       }
     }
 
+    for (const c of st.npcs) {
+      c.t += dt;
+      if (c.walk && !(st.talk.cur && st.talk.cur.ref === c)) {
+        c.x += c.dir * 70 * dt;
+        if (c.x < c.x0) c.dir = 1; if (c.x > c.x1) c.dir = -1;
+      }
+    }
     updateArs(dt);
     updatePlates(dt);
     updateDodge(dt);
@@ -111,6 +133,7 @@ export const hub = {
     if (!st.savtaAtSeat) { const s = savtaBench(); list.push({ y: s.y, f: () => sprite(ctx, 'savta', s.x, s.y + Math.sin(G.t * 1.3) * 0.6) }); }
     else { const s = savtaSeat(); list.push({ y: s.y, f: () => { shadow(ctx, s.x, s.y, 20); sprite(ctx, 'savta', s.x, s.y, { flip: true }); } }); }
     list.push({ y: GY + 8, f: () => benchFront(ctx, HUB.bench, GY + 8) });
+    for (const c of st.npcs) list.push({ y: c.y, f: () => drawNpc(ctx, c) });
     list.push({ y: st.py, f: () => drawHost(ctx) });
     list.sort((p, q) => p.y - q.y).forEach((o) => o.f());
     // צלחות באוויר
@@ -118,7 +141,7 @@ export const hub = {
     for (const p of st.enemy) drawPlate(ctx, p.img, p.x, p.y, p.spin);
     drawFx(ctx);
     // בועות דיבור
-    st.talk.draw(ctx, (w) => w === 'ars' ? { x: a.x, y: a.y - 100 } : w === 'savta' ? (st.savtaAtSeat ? { x: savtaSeat().x, y: savtaSeat().y - 100 } : { x: savtaBench().x, y: savtaBench().y - 100 }) : { x: st.px, y: st.py - 102 });
+    st.talk.draw(ctx, (w, ref) => ref ? { x: ref.x, y: ref.y - 102 } : w === 'ars' ? { x: a.x, y: a.y - 100 } : w === 'savta' ? (st.savtaAtSeat ? { x: savtaSeat().x, y: savtaSeat().y - 100 } : { x: savtaBench().x, y: savtaBench().y - 100 }) : { x: st.px, y: st.py - 102 });
     ctx.restore();
 
     // HUD
@@ -327,6 +350,8 @@ function actions() {
   if (st.dodge) return [];
   const n = nearest();
   const out = [];
+  const nc = nearNpc();
+  if (nc) out.push({ label: `Ⓐ דבר עם ${NAMES[nc.id]}`, fn: () => talkTo(nc), color: '#7a4fd6', light: '#9a74ef', key: 'talk' });
   if (n === 'tavern') out.push({ label: `🍽️ היכנס לטברנה – ערב ${S.evening}`, fn: () => go('tavern'), color: '#8a3a2a', light: '#b05a40' });
   if (n === 'shop') out.push({ label: '🛒 היכנס לחנות', fn: () => go('shop'), color: '#1f9e5a', light: '#3fc07a' });
   if (n === 'bench') {
@@ -352,3 +377,47 @@ function actions() {
   return out;
 }
 export const hubState = st;
+
+// ---------- דמויות הרחוב ----------
+function speakers() {
+  const out = st.npcs.slice();
+  if (st.ars.mode === 'sit') out.push({ id: 'ars', x: st.ars.x, y: st.ars.y, bench: true });
+  const sv = st.savtaAtSeat ? savtaSeat() : savtaBench();
+  out.push({ id: 'savta', x: sv.x, y: sv.y, bench: !st.savtaAtSeat });
+  return out;
+}
+function nearNpc() {
+  let best = null, bd = 130;
+  for (const c of st.npcs) { const d = Math.abs(st.px - c.x) + Math.abs(st.py - c.y) * 0.3; if (d < bd) { bd = d; best = c; } }
+  return best;
+}
+function talkTo(c) {
+  if (c.id === 'ars' || c.id === 'savta') {
+    // על הספסל: נגיעה מחליפה לבועה הבאה בשיחה
+    if (st.talk.busy && !st.talk.cur?.ref) { st.talk.next(); return; }
+    if (c.id === 'savta') savtaTalk(!c.bench); else st.talk.now('ars', pick(S.arsMood === 'angry' ? ARS.angry : ARS.calm), 3);
+    return;
+  }
+  const lines = NPC[c.id];
+  st.talk.now(c.id, lines[c.idx % lines.length], 6, c);
+  c.idx++;
+  c.face = st.px < c.x ? -1 : 1;
+  sfx.click();
+}
+function drawNpc(ctx, c) {
+  shadow(ctx, c.x, c.y, c.id === 'grease' ? 30 : 22);
+  let bob = 0, rot = 0, flip = c.face < 0;
+  if (c.id === 'grease') { rot = Math.sin(c.t * 2) * 0.05; bob = Math.sin(c.t * 3) * 1.5; }
+  if (c.id === 'thief') { flip = Math.sin(c.t * 0.6) > 0; }
+  if (c.id === 'waiter') { bob = -Math.abs(Math.sin(c.t * 10)) * 3; flip = c.dir < 0; }
+  if (c.id === 'dine') bob = Math.sin(c.t * 4) * 1;
+  if (c.id === 'boss') bob = Math.sin(c.t * 1.5) * 1;
+  sprite(ctx, c.id, c.x, c.y + bob, { flip, rot });
+  const near = Math.abs(st.px - c.x) < 130 && !(st.talk.cur && st.talk.cur.ref === c);
+  if (near) { // סימן "אפשר לדבר"
+    const y = c.y - 112 + Math.sin(G.t * 5) * 3;
+    ctx.fillStyle = '#1a1020'; ctx.fillRect(Math.round(c.x) - 12, Math.round(y) - 12, 24, 22);
+    ctx.fillStyle = '#ffe14d'; ctx.fillRect(Math.round(c.x) - 10, Math.round(y) - 10, 20, 18);
+    txt(ctx, 'A', c.x, y, { size: 14, color: '#1a1020', outline: false });
+  }
+}

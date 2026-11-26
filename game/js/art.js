@@ -350,12 +350,12 @@ export const PLATES = {
   red: { name: 'אדום עגבנייה', price: 40, rim: '#d8322f', face: '#fff1e8', pat: 'dots', bonus: 1, desc: '+$1 לכל פגיעה' },
   olive: { name: 'ירוק זית', price: 40, rim: '#5f8a2e', face: '#f6f8e8', pat: 'leaf', bonus: 1, desc: '+$1 לכל פגיעה' },
   porcelain: { name: 'חרסינה משובחת', price: 120, rim: '#2fc6d8', face: '#ffffff', pat: 'flower', r: 19, bonus: 2, desc: 'גדולה יותר, קל לפגוע. +$2' },
-  iron: { name: 'צלחת ברזל', price: 220, rim: '#5b6470', face: '#aab3bd', pat: 'bolts', dmg: 2, bonus: 2, desc: 'נזק כפול לבוס ולמגן. +$2' },
+  iron: { name: 'צלחת ברזל', price: 220, rim: '#5b6470', face: '#aab3bd', pat: 'bolts', dmg: 2, bonus: 2, desc: 'עוברת גם דרך דלתות זכוכית סגורות. +$2' },
   // נדירות – רק מקופסת הפתעה
   gold: { name: 'צלחת זהב', rare: true, rim: '#c8961e', face: '#ffe27a', pat: 'shine', mult: 2, desc: 'כסף כפול על כל פגיעה!' },
-  fire: { name: 'צלחת אש', rare: true, rim: '#e8423f', face: '#ffb35c', pat: 'fire', pierce: true, bonus: 2, desc: 'עוברת דרך כמה נבלים' },
+  fire: { name: 'צלחת אש', rare: true, rim: '#e8423f', face: '#ffb35c', pat: 'fire', pierce: true, bonus: 2, desc: 'שוברת כמה פריטים בזריקה אחת' },
   rainbow: { name: 'צלחת קשת', rare: true, rim: '#7a4fd6', face: '#ffffff', pat: 'rainbow', r: 21, bonus: 3, desc: 'ענקית וצבעונית. +$3' },
-  star: { name: 'צלחת כוכב', rare: true, rim: '#0b3d91', face: '#16285e', pat: 'stars', homing: true, bonus: 2, desc: 'מתבייתת על המטרה' },
+  star: { name: 'צלחת כוכב', rare: true, rim: '#0b3d91', face: '#16285e', pat: 'stars', homing: true, bonus: 2, desc: 'מתבייתת על הפריט הנוצץ' },
   painted: { name: 'הצלחת שלי', price: 0, rim: '#1d4fa3', face: '#ffffff', pat: 'paint', desc: 'הצלחת שציירת בעצמך' },
 };
 export const RARE = ['gold', 'fire', 'rainbow', 'star'];
@@ -475,4 +475,66 @@ export function bossVariants(img) {
   }
   x.putImageData(d, 0, 0);
   return { broken: c, shield: { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, r: (maxX - minX) / 2 } };
+}
+
+// ---------- פריטים שבירים על המדפים ----------
+// גודל בפיקסלים (לפני הגדלה x2)
+export const ITEM = {
+  plate: { w: 11, h: 11, name: 'צלחת' },
+  amphora: { w: 10, h: 14, name: 'כד' },
+  ouzo: { w: 5, h: 15, name: 'אוזו' },
+  jar: { w: 9, h: 11, name: 'צנצנת' },
+};
+export const ITEM_TYPES = Object.keys(ITEM);
+const itemCache = new Map();
+function goldify(c) {
+  const x = c.getContext('2d'), d = x.getImageData(0, 0, c.width, c.height), p = d.data;
+  for (let i = 0; i < p.length; i += 4) {
+    if (!p[i + 3]) continue;
+    const l = (p[i] + p[i + 1] + p[i + 2]) / 3;
+    const [r, g, b] = l < 60 ? [90, 60, 10] : l < 120 ? [190, 130, 20] : l < 190 ? [240, 190, 50] : [255, 240, 160];
+    p[i] = r; p[i + 1] = g; p[i + 2] = b;
+  }
+  x.putImageData(d, 0, 0);
+}
+export function itemCanvas(type, gold) {
+  const k = type + (gold ? ':g' : '');
+  if (itemCache.has(k)) return itemCache.get(k);
+  const I = ITEM[type];
+  const c = document.createElement('canvas'); c.width = I.w; c.height = I.h;
+  const x = c.getContext('2d');
+  const O = '#1a1020';
+  if (type === 'plate') {
+    circ(x, 5, 5, 5, O); circ(x, 5, 5, 4, '#1d4fa3'); circ(x, 5, 5, 3, '#ffffff');
+    R(x, 4, 1, 1, 1, '#ffffff'); R(x, 1, 4, 1, 1, '#ffffff'); R(x, 8, 5, 1, 1, '#ffffff'); R(x, 5, 8, 1, 1, '#ffffff');
+    R(x, 4, 4, 2, 2, '#e8423f'); R(x, 3, 3, 1, 1, '#ffffffcc');
+  } else if (type === 'amphora') {
+    R(x, 3, 0, 4, 1, O); R(x, 3, 1, 4, 3, O); R(x, 4, 1, 2, 3, '#c25a2c');
+    R(x, 0, 3, 2, 1, O); R(x, 8, 3, 2, 1, O); R(x, 0, 4, 1, 3, O); R(x, 9, 4, 1, 3, O);
+    R(x, 1, 4, 8, 8, O); R(x, 2, 4, 6, 8, '#c25a2c'); R(x, 1, 5, 8, 6, '#c25a2c'); R(x, 0, 6, 1, 4, O); R(x, 9, 6, 1, 4, O);
+    R(x, 1, 7, 8, 2, O); R(x, 2, 7, 1, 1, '#e8a060'); R(x, 5, 7, 1, 1, '#e8a060'); R(x, 7, 8, 1, 1, '#e8a060');
+    R(x, 2, 5, 1, 2, '#e88a50'); R(x, 3, 12, 4, 1, O); R(x, 2, 13, 6, 1, O);
+  } else if (type === 'ouzo') {
+    R(x, 1, 0, 3, 2, '#1d4fa3'); R(x, 1, 2, 3, 3, O); R(x, 2, 2, 1, 3, '#cfe8e0');
+    R(x, 0, 5, 5, 10, O); R(x, 1, 5, 3, 9, '#cfe8e0'); R(x, 1, 8, 3, 4, '#1d4fa3'); R(x, 1, 9, 3, 1, '#ffffff'); R(x, 1, 6, 1, 2, '#ffffff');
+  } else if (type === 'jar') {
+    R(x, 1, 0, 7, 2, O); R(x, 2, 0, 5, 1, '#e8423f'); R(x, 2, 1, 5, 1, '#b02a20');
+    R(x, 0, 2, 9, 9, O); R(x, 1, 2, 7, 8, '#bfe3d8'); R(x, 1, 6, 7, 4, '#9cc4a0');
+    R(x, 2, 6, 2, 2, '#3a5a2a'); R(x, 5, 7, 2, 2, '#4a6a2a'); R(x, 3, 8, 2, 1, '#3a5a2a'); R(x, 1, 3, 1, 3, '#ffffff');
+  }
+  if (gold) goldify(c);
+  itemCache.set(k, c);
+  return c;
+}
+export function itemColors(type) {
+  return { plate: ['#ffffff', '#1d4fa3', '#c8d2dc'], amphora: ['#c25a2c', '#1a1020', '#e8a060'], ouzo: ['#cfe8e0', '#1d4fa3', '#ffffff'], jar: ['#bfe3d8', '#3a5a2a', '#e8423f'] }[type];
+}
+// נצנוץ סביב הפריט המיוחד
+export function sparkle(ctx, x, y, r, t) {
+  for (let i = 0; i < 4; i++) {
+    const a = t * 3 + i * Math.PI / 2, s = 2 + ((Math.floor(t * 8) + i) % 3);
+    const sx = Math.round(x + Math.cos(a) * r), sy = Math.round(y + Math.sin(a) * r * 0.8);
+    ctx.fillStyle = '#fffbe0'; ctx.fillRect(sx - s, sy, s * 2 + 1, 1); ctx.fillRect(sx, sy - s, 1, s * 2 + 1);
+    ctx.fillStyle = '#ffe14d'; ctx.fillRect(sx - 1, sy - 1, 3, 3);
+  }
 }

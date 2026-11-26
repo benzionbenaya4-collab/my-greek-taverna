@@ -1,24 +1,16 @@
-// הטברנה – זריקת צלחות על הנבלים, בוס בסוף הערב
-import { G, sprite, shadow, txt, btn, key, clamp, rnd, rndi, pick, dist, burst, floater, ring, updateFx, drawFx } from '../engine.js';
-import { drawTavernBg, PLATES, plateCanvas, drawPlate, drawStars, bossVariants, R } from '../art.js';
+// הטברנה – שוברים צלחות, כדים ובקבוקים על מדפים תלויים. בסוף הערב: המדף הגדול
+import { G, sprite, shadow, txt, btn, key, clamp, rnd, pick, dist, burst, floater, ring, updateFx, drawFx } from '../engine.js';
+import { drawTavernBg, PLATES, plateCanvas, drawPlate, R, ITEM, ITEM_TYPES, itemCanvas, itemColors, sparkle } from '../art.js';
 import { S, save } from '../save.js';
 import { sfx, musicStart, musicTempo, musicVolume } from '../audio.js';
 import { go, hud, earn, banner, drawBanners, clearBanners, Talk } from '../game.js';
-import { SLANG, OUCH } from '../lines.js';
+import { SLANG, OUCH, WAITER } from '../lines.js';
 
 const PLATE_SPEED = 1250;
-const TYPES = {
-  thief: { hw: 24, head: 0.3, speed: 110 },
-  grease: { hw: 30, head: 0.48, speed: 0 },
-  dine: { hw: 22, head: 0.3, speed: 300 },
-  waiter: { hw: 24, head: 0.3, speed: 330 },
-  boss: { hw: 32, head: 0.3, speed: 120 },
-};
-
-let bg = null, bossImg = null;
+let bg = null;
 let WB = 200, FY0 = 260, FY1 = 410;
 const st = {};
-export const tav = st; // לשימוש מודולים נוספים (ערס, כיפת ברזל, קופסאות)
+export const tav = st;
 
 function rebuild() {
   WB = Math.round(G.H * (G.portrait ? 0.3 : 0.36)) & ~1;
@@ -27,34 +19,226 @@ function rebuild() {
 }
 export const floor = () => ({ y0: FY0, y1: FY1, wb: WB });
 
+// מודולים נוספים (ערס / כיפת ברזל / קופסאות / סבתא)
+const hooks = [];
+export function addHook(h) { hooks.push(h); }
+export const targets = [];
+
 // ---------- ערב ----------
 function startEvening() {
   const n = S.evening;
   Object.assign(st, {
-    n, phase: 'intro', t: 0, dur: 60, earned: 0, heads: 0, hits: 0, combo: 0, comboT: 0,
-    v: [], pl: [], ep: [], spawnT: 1.2, waiterT: rnd(5, 8),
-    boss: null, cool: 0, aim: null, px: G.W / 2, hostFlash: 0, hostBob: 0,
-    talk: new Talk(), events: [], over: null,
+    n, phase: 'intro', t: 0, dur: 60, breaks: 0, heads: 0, combo: 0, comboT: 0, headStreak: 0,
+    v: [], pl: [], ep: [], waiterT: rnd(4, 7), shelves: [], cab: null, specialT: 0, special: null,
+    cool: 0, aim: null, px: G.W / 2, hostFlash: 0, hostBob: 0, talk: new Talk(), over: null,
   });
   st.base = 100 + (n - 1) * 10;
+  st.k = clamp(1 - 0.08 * (n - 1), 0.6, 1); // פריטים קטנים יותר בכל ערב
+  buildShelves();
   hooks.forEach((h) => h.start && h.start(st));
   clearBanners();
-  banner(`ערב ${n}`, 1.8, { sub: n === 1 ? 'זרוק צלחות על הנבלים! פגיעה בראש = $10' : 'יאללה! הקצב מאיץ…' });
+  banner(`ערב ${n}`, 1.8, { sub: n === 1 ? 'שבור את מה שעל המדפים! הנוצץ = $10' : 'יאללה! יותר מדפים, והם זזים…' });
+  st.talk.say('host', n === 1 ? 'יאללה, מתחילים לשבור!' : pick(['יאללה, עוד ערב!', 'הקצב עולה, תחזיקו חזק!', 'וואלה, הם תלו עוד מדפים!']), 2.2);
   musicStart(st.base); musicTempo(st.base); musicVolume(1);
 }
 
-// מודולים נוספים נרשמים כאן (ערס / כיפת ברזל / קופסאות)
-const hooks = [];
-export function addHook(h) { hooks.push(h); }
+// ---------- מדפים ----------
+function buildShelves() {
+  const n = st.n;
+  const count = Math.min(2 + n, 6);
+  const rows = G.portrait ? Math.min(count, count > 4 ? 4 : 3) : count > 3 ? 3 : 2;
+  const top = G.portrait ? 160 : 134;
+  const bottom = G.portrait ? FY1 - 170 : FY0 + 40;
+  const gap = rows > 1 ? (bottom - top) / (rows - 1) : 0;
+  const perRow = Math.ceil(count / rows);
+  let made = 0;
+  for (let r = 0; r < rows && made < count; r++) {
+    const inRow = Math.min(perRow, count - made);
+    for (let c = 0; c < inRow; c++, made++) {
+      const w = Math.min(G.W / inRow - 30, (220 - n * 8) * (G.portrait ? 1.05 : 1));
+      const ax = (G.W * (c + 1)) / (inRow + 1) + (r % 2 ? 20 : -20);
+      const L = top + r * gap + rnd(-10, 10);
+      const moving = n >= 2 && Math.random() < 0.35 + n * 0.08;
+      const swing = n >= 3 && Math.random() < 0.25 + n * 0.07;
+      const sh = {
+        ax, baseX: ax, L, w: Math.max(110, w), a: 0, ang: 0, x: ax, y: L,
+        amp: moving ? Math.max(20, Math.min(G.W / inRow / 2 - w / 2 + 40, 60 + n * 12)) : 0, sp: rnd(0.5, 0.9) + n * 0.08, ph: rnd(0, 6),
+        swing: swing ? Math.min(0.42, 0.18 + n * 0.03) : 0, swSp: rnd(1.1, 1.6) + n * 0.06, swPh: rnd(0, 6),
+        items: [], restockT: 0,
+      };
+      stock(sh);
+      st.shelves.push(sh);
+    }
+  }
+  pickSpecial();
+}
+function stock(sh) {
+  sh.items = [];
+  const k = st.k, step = 36 * k;
+  const nItems = clamp(Math.floor((sh.w - 16) / step), 2, 7);
+  const span = (nItems - 1) * step;
+  for (let i = 0; i < nItems; i++) {
+    const type = pick(ITEM_TYPES);
+    sh.items.push({ type, lx: -span / 2 + i * step, alive: true, pop: 0, w: ITEM[type].w * 2.6 * k, h: ITEM[type].h * 2.6 * k, sh });
+  }
+}
+function placeShelf(sh) {
+  sh.ax = sh.baseX + Math.sin(st.t * sh.sp + sh.ph) * sh.amp;
+  sh.a = sh.swing ? Math.sin(st.t * sh.swSp + sh.swPh) * sh.swing : 0;
+  sh.x = sh.ax + Math.sin(sh.a) * sh.L;
+  sh.y = Math.cos(sh.a) * sh.L;
+  sh.ang = -sh.a;
+}
+// מיקום עולמי של מרכז פריט
+export function itemPos(it) {
+  if (it.cab) {
+    const c = st.cab;
+    return { x: c.x + it.lx, y: c.y + it.ly - it.h / 2, ang: 0 };
+  }
+  const sh = it.sh, c = Math.cos(sh.ang), s = Math.sin(sh.ang);
+  const lx = it.lx, ly = -3 - it.h / 2;
+  return { x: sh.x + lx * c - ly * s, y: sh.y + lx * s + ly * c, ang: sh.ang };
+}
+export function allItems() {
+  const out = [];
+  for (const sh of st.shelves) for (const it of sh.items) if (it.alive) out.push(it);
+  if (st.cab && st.cab.state === 'fight') for (const it of st.cab.items) if (it.alive) out.push(it);
+  return out;
+}
+function pickSpecial() {
+  const all = allItems();
+  const others = all.filter((it) => it !== st.special);
+  st.special = others.length ? pick(others) : all[0] || null;
+  st.specialT = clamp(4.5 - st.n * 0.3, 2.2, 4.5);
+}
+// בדיקת פגיעה של נקודה בפריט (במערכת הצירים של המדף)
+function itemHit(it, px, py, r) {
+  if (it.cab) {
+    const c = st.cab, x0 = c.x + it.lx - it.w / 2, y1 = c.y + it.ly;
+    return px > x0 - r * 0.5 && px < x0 + it.w + r * 0.5 && py > y1 - it.h - r * 0.4 && py < y1 + r * 0.3;
+  }
+  const sh = it.sh, dx = px - sh.x, dy = py - sh.y, c = Math.cos(sh.ang), s = Math.sin(sh.ang);
+  const u = dx * c + dy * s, v = -dx * s + dy * c;
+  return u > it.lx - it.w / 2 - r * 0.5 && u < it.lx + it.w / 2 + r * 0.5 && v > -3 - it.h - r * 0.4 && v < -3 + r * 0.3;
+}
+
+const reward = (base, P) => { let n = base + (P.bonus || 0); if (P.mult) n *= P.mult; return n; };
+export function comboUp(x, y) {
+  st.combo++; st.comboT = 2.2;
+  if (st.combo >= 3 && st.combo % 2 === 1) floater(pick(SLANG), x, y - 40, { size: 26, color: '#7bd23f' });
+}
+export function breakItem(it, P) {
+  if (!it.alive) return;
+  const p = itemPos(it);
+  it.alive = false;
+  sfx.break();
+  burst(p.x, p.y, itemColors(it.type).concat(it === st.special ? ['#ffe14d'] : []), 16, { floor: FY0 + rnd(0, FY1 - FY0), up: 60, max: 240 });
+  st.breaks++; S.stats.hits++;
+  P = P || PLATES.white;
+  if (it === st.special) {
+    st.heads++; S.stats.heads++;
+    st.headStreak++;
+    const n = reward(10, P);
+    earn(n, p.x, p.y - 30, `בול במטרה! $${n}`, '#ffe14d');
+    ring(p.x, p.y, '#ffe14d', 46);
+    if (st.headStreak >= 2) floater(st.headStreak >= 4 ? 'סחתיין!' : 'וואלה בול!', p.x, p.y - 64, { size: 24, color: '#ff9b2e' });
+    pickSpecial();
+  } else {
+    const n = reward(3, P);
+    earn(n, p.x, p.y - 26, `+$${n}`, '#fffbea');
+  }
+  comboUp(p.x, p.y - 30);
+}
+
+// ---------- המדף הגדול ----------
+function spawnCabinet() {
+  const n = st.n;
+  const w = Math.min(330, G.W - 90), h = 224;
+  const c = { x: G.W / 2, baseX: G.W / 2, y: -h - 20, ty: G.portrait ? 150 : 96, w, h, state: 'enter', t: 0, door: 0, cyc: 0, open: false,
+    openDur: clamp(2.4 - n * 0.15, 1.2, 2.4), closeDur: clamp(1.6 + n * 0.1, 1.6, 2.6), amp: n >= 2 ? Math.max(0, Math.min(G.W / 2 - w / 2 - 20, 40 + n * 15)) : 0, items: [] };
+  const rows = 3, cols = 4, iw = (w - 30) / cols;
+  for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+    const type = pick(ITEM_TYPES);
+    c.items.push({ type, cab: true, lx: -w / 2 + 15 + iw * (q + 0.5), ly: 18 + (r + 1) * ((h - 30) / rows) - 4, alive: true, pop: 1, w: ITEM[type].w * 2.4, h: ITEM[type].h * 2.4 });
+  }
+  st.cab = c;
+  banner('המדף הגדול!', 2, { color: '#ff8a5a', sub: 'אפשר לפגוע רק כשהדלתות פתוחות' });
+  st.talk.now('host', 'וואו… ארון עם דלתות זכוכית?!', 2.2);
+  sfx.clang();
+}
+function updateCabinet(dt) {
+  const c = st.cab; if (!c) return;
+  c.t += dt;
+  if (c.state === 'enter') { c.y += 260 * dt; if (c.y >= c.ty) { c.y = c.ty; c.state = 'fight'; c.t = 0; pickSpecial(); } return; }
+  if (c.state === 'dead') { c.y += 420 * dt; c.rot = (c.rot || 0) + dt * 0.8; if (c.t > 1.4) { st.cab = null; endEvening(true); } return; }
+  c.x = c.baseX + Math.sin(c.t * 0.7) * c.amp;
+  c.cyc += dt;
+  const want = c.open ? c.cyc <= c.openDur : c.cyc > c.closeDur;
+  if (want !== c.open) { c.open = want; c.cyc = 0; sfx.click(); }
+  c.door = clamp(c.door + (c.open ? 1 : -1) * dt * 4, 0, 1);
+  if (!c.items.some((it) => it.alive)) {
+    c.state = 'dead'; c.t = 0; S.stats.bosses++;
+    G.shake = 0.6; sfx.boom();
+    burst(c.x, c.y + c.h / 2, ['#5a2e14', '#8a5a2b', '#bfe3f0', '#ffffff', '#ffe14d'], 60, { up: 300, max: 520, smin: 4, smax: 9 });
+    const bonus = 60 + st.n * 20;
+    earn(bonus, c.x, c.y + c.h / 2, `המדף הגדול נשבר! +$${bonus}`);
+  }
+}
+function cabinetHit(p) {
+  const c = st.cab;
+  if (!c || c.state !== 'fight') return false;
+  if (p.x < c.x - c.w / 2 || p.x > c.x + c.w / 2 || p.y < c.y || p.y > c.y + c.h) return false;
+  if (c.door < 0.85 && !p.P.dmg) {
+    p.dead = true;
+    sfx.clang(); burst(p.x, p.y, ['#ffffff', '#c8d2dc', '#bfe3f0'], 10);
+    floater('קלינג! סגור!', p.x, p.y - 16, { size: 18, color: '#bfe3f0', life: 0.8 });
+    return true;
+  }
+  for (const it of c.items) {
+    if (it.alive && itemHit(it, p.x, p.y, p.r)) { breakItem(it, p.P); if (!p.P.pierce) { p.dead = true; return true; } }
+  }
+  return false;
+}
+
+// ---------- מלצר ----------
+function spawnWaiter() {
+  const side = Math.random() < 0.5 ? -1 : 1;
+  st.v.push({ type: 'waiter', x: side < 0 ? -50 : G.W + 50, y: rnd(FY0 + 20, FY1 - 10), vx: -side * rnd(300, 360) * (st.base / 100), t: 0, flash: 0, rot: 0, stumble: 0, face: -side });
+}
+function updateWaiters(dt) {
+  for (const v of st.v) {
+    v.t += dt; v.flash = Math.max(0, v.flash - dt * 3);
+    v.x += v.vx * (v.stumble > 0 ? 0.4 : 1) * dt; v.face = v.vx < 0 ? -1 : 1;
+    if (v.stumble > 0) { v.stumble -= dt; v.rot = Math.sin(v.stumble * 30) * 0.2; } else v.rot = 0;
+    if (v.x < -70 || v.x > G.W + 70) v.gone = true;
+  }
+  st.v = st.v.filter((v) => !v.gone);
+}
+function waiterHit(p) {
+  for (const v of st.v) {
+    if (v.stumble > 0) continue;
+    if (p.x > v.x - 26 - p.r * 0.5 && p.x < v.x + 26 + p.r * 0.5 && p.y > v.y - 98 && p.y < v.y - 6) {
+      p.dead = true;
+      v.flash = 1; v.stumble = 0.7;
+      sfx.break(); sfx.thud(); burst(p.x, p.y, ['#ffffff', '#c8d2dc'], 12, { floor: v.y });
+      const n = Math.min(10, S.money);
+      earn(-n, v.x, v.y - 130, `${pick(OUCH)} -$${n}`);
+      st.talk.now('waiter', pick(WAITER.hit), 2, v);
+      st.combo = 0; st.headStreak = 0;
+      return true;
+    }
+  }
+  return false;
+}
 
 export const tavern = {
   enter() { rebuild(); startEvening(); },
-  resize() { rebuild(); for (const v of st.v) v.y = clamp(v.y, FY0, FY1); st.px = clamp(st.px, 60, G.W - 60); },
+  resize() { rebuild(); st.px = clamp(st.px, 60, G.W - 60); for (const v of st.v) v.y = clamp(v.y, FY0, FY1); },
   exit() { save(true); },
   key(code) {
     if (code === 'Escape') leave();
     if (code === 'Space' && st.phase !== 'end') {
-      const m = G.mouse || { x: G.W / 2, y: (FY0 + FY1) / 2 - 40 };
+      const m = G.mouse || { x: G.W / 2, y: G.H * 0.35 };
       throwAt(m.x, m.y);
     }
   },
@@ -71,8 +255,7 @@ export const tavern = {
     if (a.sling) {
       const dx = a.sx - a.x, dy = a.sy - a.y, l = Math.hypot(dx, dy);
       if (l < 22) return;
-      const reach = clamp(260 + l * 3.2, 300, 1400);
-      throwDir(dx / l, dy / l, reach);
+      throwDir(dx / l, dy / l, clamp(260 + l * 3.2, 300, 1400));
     } else throwAt(p.x, p.y);
   },
   update,
@@ -83,216 +266,30 @@ function leave() { go('hub', { from: 'tavern' }); }
 const origin = () => ({ x: st.px - 22, y: G.H - 46 });
 
 // ---------- זריקה ----------
-function plateInfo() {
-  const P = PLATES[S.plate] || PLATES.white;
-  return { img: plateCanvas(S.plate, S.paint, 32), r: P.r || 14, P };
-}
 function throwAt(tx, ty) {
   const o = origin();
   const dx = tx - o.x, dy = ty - o.y, l = Math.hypot(dx, dy) || 1;
-  throwDir(dx / l, dy / l, l, true);
+  throwDir(dx / l, dy / l, l);
 }
-function throwDir(ux, uy, reach, tap) {
+function throwDir(ux, uy, reach) {
   if (st.cool > 0) return;
-  if (uy > -0.05) { uy = -0.05; const l = Math.hypot(ux, uy); ux /= l; uy /= l; } // רק קדימה
+  if (uy > -0.05) { uy = -0.05; const l = Math.hypot(ux, uy); ux /= l; uy /= l; }
   st.cool = 0.2;
-  const o = origin(); const pi = plateInfo();
+  const o = origin();
+  const P = PLATES[S.plate] || PLATES.white;
+  const img = plateCanvas(S.plate, S.paint, 32), r = P.r || 14;
   const n = S.multi || 1;
   const spread = n === 1 ? [0] : n === 2 ? [-0.07, 0.07] : [-0.13, 0, 0.13];
   for (const s of spread) {
     const c = Math.cos(s), sn = Math.sin(s);
     const vx = ux * c - uy * sn, vy = ux * sn + uy * c;
-    st.pl.push({ x: o.x, y: o.y, vx: vx * PLATE_SPEED, vy: vy * PLATE_SPEED, left: reach, spin: rnd(0, 6), img: pi.img, r: pi.r, P: pi.P, tap, hitSet: new Set() });
+    st.pl.push({ x: o.x, y: o.y, vx: vx * PLATE_SPEED, vy: vy * PLATE_SPEED, left: reach, spin: rnd(0, 6), img, r, P });
   }
   st.hostBob = 0.15;
   sfx.throw();
 }
 
-// ---------- נבלים ----------
-function spawnVillain(type, o = {}) {
-  const side = o.side ?? (Math.random() < 0.5 ? -1 : 1);
-  const x = side < 0 ? -40 : G.W + 40;
-  const y = o.y ?? rnd(FY0 + 10, FY1);
-  const v = { type, img: type, x, y, vx: 0, vy: 0, side, t: 0, state: 'walk', flash: 0, dodgeCd: 0, face: -side, rot: 0, ...TYPES[type] };
-  if (type === 'thief') { v.vx = -side * rnd(95, 135) * (st.base / 100); v.phase = rnd(0, 6); }
-  if (type === 'grease') { v.vx = -side * rnd(120, 200); v.vy = rnd(-60, 60); v.life = rnd(9, 13); v.ax = 0; v.axT = 0; }
-  if (type === 'dine') { v.tx = rnd(G.W * 0.2, G.W * 0.8); v.ty = y; v.vx = -side * 140; v.sitT = rnd(1.6, 3); }
-  if (type === 'waiter') { v.y = rnd(FY0 + 30, FY1 - 20); v.vx = -side * rnd(300, 360); }
-  st.v.push(v);
-  return v;
-}
-
-function updateVillains(dt) {
-  for (const v of st.v) {
-    v.t += dt; v.flash = Math.max(0, v.flash - dt * 3); v.dodgeCd -= dt;
-    if (v.state === 'hit') {
-      v.rot = Math.sin(v.t * 30) * 0.15;
-      if (v.t > 0.45) { v.state = 'flee'; v.t = 0; const s = v.x < G.W / 2 ? -1 : 1; v.vx = s * 380; v.vy = 0; v.face = s; }
-      continue;
-    }
-    if (v.state === 'flee') { v.rot = Math.sin(v.t * 14) * 0.25; v.x += v.vx * dt; continue; }
-    if (v.state === 'ko') { v.koT -= dt; if (v.koT <= 0) { v.state = 'flee'; v.t = 0; v.rot = 0; v.vx = (v.x < G.W / 2 ? -1 : 1) * 380; } continue; }
-    if (v.type === 'thief') {
-      v.y = clamp(v.y + Math.sin(v.t * 2.2 + v.phase) * 40 * dt, FY0, FY1);
-      // חומק מצלחות שמתקרבות
-      if (v.dodgeCd <= 0) {
-        for (const p of st.pl) {
-          const d = dist(p.x, p.y, v.x, v.y - 50);
-          const toward = (v.x - p.x) * p.vx + (v.y - 50 - p.y) * p.vy > 0;
-          if (d < 170 && toward && Math.random() < 0.5 + st.n * 0.04) {
-            const s = p.vx > 0 ? -1 : 1;
-            v.dash = 0.22; v.dashV = (Math.abs(p.vx) > 200 ? s : (Math.random() < 0.5 ? -1 : 1)) * 520;
-            v.dodgeCd = clamp(1.4 - st.n * 0.08, 0.6, 1.4);
-            floater('חומק!', v.x, v.y - 110, { size: 16, color: '#cfd8ff', life: 0.7 });
-            break;
-          }
-          if (d < 170) { v.dodgeCd = 0.5; break; }
-        }
-      }
-      if (v.dash > 0) { v.dash -= dt; v.x += v.dashV * dt; G.fx.push({ k: 'ghost', img: 'thief', x: v.x, y: v.y, t: 0, life: 0.25, flip: v.face < 0 }); }
-      v.x += v.vx * dt; v.face = v.vx < 0 ? -1 : 1;
-      if ((v.vx > 0 && v.x > G.W + 50) || (v.vx < 0 && v.x < -50)) {
-        v.gone = true; const n = Math.min(3, S.money);
-        if (n > 0) earn(-n, clamp(v.x, 60, G.W - 60), v.y - 110, `השודד גנב $${n}!`);
-      }
-    } else if (v.type === 'grease') {
-      v.life -= dt; v.axT -= dt;
-      if (v.axT <= 0) { v.axT = rnd(0.4, 0.9); v.ax = rnd(-420, 420); v.ay = rnd(-160, 160); }
-      v.vx = clamp(v.vx + v.ax * dt, -280, 280); v.vy = clamp(v.vy + v.ay * dt, -120, 120);
-      v.vx *= 0.995; v.x += v.vx * dt; v.y += v.vy * dt;
-      v.rot = clamp(v.vx / 2000, -0.15, 0.15);
-      if (v.life > 0) {
-        if (v.x < 50) { v.x = 50; v.vx = Math.abs(v.vx); } if (v.x > G.W - 50) { v.x = G.W - 50; v.vx = -Math.abs(v.vx); }
-      } else if (v.x < -60 || v.x > G.W + 60) v.gone = true;
-      if (v.y < FY0) { v.y = FY0; v.vy = Math.abs(v.vy); } if (v.y > FY1) { v.y = FY1; v.vy = -Math.abs(v.vy); }
-      v.face = v.vx < 0 ? -1 : 1;
-      if (Math.random() < dt * 6) G.fx.push({ k: 'bit', x: v.x + rnd(-20, 20), y: v.y - 2, vx: 0, vy: 0, g: 0, life: 1.6, t: 0, c: Math.random() < 0.5 ? '#e8c43a' : '#c9a020', sz: 4 });
-    } else if (v.type === 'dine') {
-      if (v.state === 'walk') {
-        const dx = v.tx - v.x; v.x += Math.sign(dx) * Math.min(Math.abs(dx), 140 * dt); v.face = dx < 0 ? -1 : 1;
-        if (Math.abs(dx) < 2) { v.state = 'sit'; v.t = 0; }
-      } else if (v.state === 'sit') {
-        if (v.t > v.sitT) { v.state = 'run'; v.t = 0; const s = v.x < G.W / 2 ? -1 : 1; v.vx = s * TYPES.dine.speed * (st.base / 100); v.face = s; floater('!', v.x, v.y - 112, { size: 30, color: '#ff5a5a', life: 0.6 }); }
-      } else if (v.state === 'run') {
-        v.x += v.vx * dt;
-        if (v.x < -50 || v.x > G.W + 50) { v.gone = true; const n = Math.min(5, S.money); if (n) earn(-n, clamp(v.x, 80, G.W - 80), v.y - 110, `ברח בלי לשלם! -$${n}`); }
-      }
-    } else if (v.type === 'waiter') {
-      v.x += v.vx * dt; v.face = v.vx < 0 ? -1 : 1;
-      if (v.stumble > 0) { v.stumble -= dt; v.rot = Math.sin(v.stumble * 30) * 0.2; } else v.rot = 0;
-      if (v.x < -60 || v.x > G.W + 60) v.gone = true;
-    }
-  }
-  for (const v of st.v) if (v.state === 'flee' && (v.x < -60 || v.x > G.W + 60)) v.gone = true;
-  st.v = st.v.filter((v) => !v.gone);
-}
-
-function hitbox(v) {
-  const h = 98;
-  if (v.state === 'ko') { const k = v.koSide || 1, xa = v.x, xb = v.x - h * k; return { x0: Math.min(xa, xb), x1: Math.max(xa, xb), y0: v.y - 42, y1: v.y + 42, head: v.y + 99 }; }
-  return { x0: v.x - v.hw, x1: v.x + v.hw, y0: v.y - h, y1: v.y, head: v.y - h + h * v.head };
-}
-export function hittable(v) { return v.state !== 'hit' && v.state !== 'flee'; }
-
-// חישוב פרס לפגיעה
-function reward(base, P) {
-  let n = base + (P.bonus || 0);
-  if (P.mult) n *= P.mult;
-  return n;
-}
-export function comboUp(x, y) {
-  st.combo++; st.comboT = 2.2;
-  if (st.combo >= 3 && st.combo % 2 === 1) floater(pick(SLANG), x, y - 40, { size: 26, color: '#7bd23f' });
-}
-
-export function hitVillain(v, p, x, y, byAlly) {
-  const hb = hitbox(v);
-  const head = y < hb.head;
-  const P = p ? p.P : PLATES.white;
-  v.flash = 1;
-  sfx.break(); sfx.thud();
-  burst(x, y, ['#ffffff', '#c8d2dc', P.rim || '#9aa5b1'], 14, { floor: v.y + 4 });
-  if (v.type === 'waiter') {
-    v.stumble = 0.6;
-    const n = Math.min(10, S.money);
-    earn(-n, v.x, v.y - 120, `${pick(OUCH)} -$${n}`);
-    st.combo = 0;
-    return;
-  }
-  const wasKo = v.state === 'ko';
-  v.state = 'hit'; v.t = 0; v.rot = 0;
-  st.hits++; S.stats.hits++;
-  if (head || wasKo) {
-    st.heads++; S.stats.heads++;
-    st.headStreak = (st.headStreak || 0) + 1;
-    if (st.headStreak >= 2) floater(st.headStreak >= 4 ? 'סחתיין!' : 'וואלה בול!', v.x, v.y - 150, { size: 24, color: '#ff9b2e' });
-    const n = reward(10, P);
-    earn(n, v.x, v.y - 120, `בול במטרה! $${n}`, '#ffe14d');
-    ring(x, y, '#ffe14d', 46);
-  } else {
-    st.headStreak = 0;
-    const n = reward(v.type === 'dine' && v.state === 'run' ? 6 : 4, P);
-    earn(n, v.x, v.y - 116, `פגיעה! $${n}`, '#fffbea');
-  }
-  comboUp(v.x, v.y - 120);
-}
-
-// ---------- בוס ----------
-function spawnBoss() {
-  const n = st.n;
-  st.boss = { type: 'boss', img: 'boss', x: G.W / 2, y: FY0 - 40, vx: 110 + n * 10, vy: 0, t: 0, state: 'enter', flash: 0,
-    shield: 4 + n, shieldMax: 4 + n, hp: 5 + n * 2, hpMax: 5 + n * 2, throwT: 2.5, face: 1, rot: 0, ...TYPES.boss, broken: false };
-  banner('השף הרשע מגיע!', 2, { color: '#ff8a5a', sub: 'שבור לו את המגן!' });
-  sfx.clang();
-}
-function updateBoss(dt) {
-  const b = st.boss; if (!b) return;
-  b.t += dt; b.flash = Math.max(0, b.flash - dt * 3);
-  if (b.state === 'enter') { b.y += 90 * dt; if (b.y >= FY0 + 40) { b.state = 'fight'; } return; }
-  if (b.state === 'dead') { b.rot += dt * 2; b.y += 40 * dt; if (b.t > 1.6) { st.boss = null; endEvening(true); } return; }
-  b.x += b.vx * dt;
-  if (b.x < 90) { b.x = 90; b.vx = Math.abs(b.vx); } if (b.x > G.W - 90) { b.x = G.W - 90; b.vx = -Math.abs(b.vx); }
-  b.y = clamp(FY0 + 50 + Math.sin(b.t * 0.9) * (FY1 - FY0 - 60) * 0.45, FY0, FY1);
-  b.face = b.vx < 0 ? -1 : 1;
-  b.throwT -= dt;
-  if (b.throwT <= 0) {
-    b.throwT = clamp(2.4 - st.n * 0.15, 1.1, 2.4);
-    enemyThrow(b.x, b.y - 70, 'pot', 360 + st.n * 15);
-  }
-}
-function hitBoss(p, x, y) {
-  const b = st.boss; const P = p.P;
-  const dmg = P.dmg || 1;
-  b.flash = 1;
-  if (b.shield > 0) {
-    b.shield = Math.max(0, b.shield - dmg);
-    sfx.clang(); burst(x, y, ['#6ead97', '#3d5b51', '#ffffff'], 10);
-    floater('קלאנג!', x, y - 20, { size: 20, color: '#9fe0c8', life: 0.8 });
-    if (b.shield === 0) {
-      b.broken = true; G.shake = 0.4; sfx.boom();
-      burst(b.x + 10, b.y - 50, ['#6ead97', '#3d5b51', '#5d9b85', '#ffffff'], 40, { up: 260, max: 420, smin: 4, smax: 9 });
-      banner('המגן נשבר!', 1.4, { color: '#7bd23f' });
-      earn(15, b.x, b.y - 130, 'וואלה בול! +$15');
-    }
-    return;
-  }
-  const hb = hitbox(b); const head = y < hb.head;
-  b.hp -= head ? dmg * 2 : dmg;
-  sfx.break(); sfx.thud();
-  burst(x, y, ['#ffffff', '#c8d2dc', '#e8423f'], 14);
-  const n = reward(head ? 15 : 8, P);
-  earn(n, b.x, b.y - 130, head ? `בול במטרה! $${n}` : `+$${n}`);
-  comboUp(b.x, b.y - 130);
-  if (b.hp <= 0) {
-    b.state = 'dead'; b.t = 0; S.stats.bosses++;
-    G.shake = 0.6; sfx.boom();
-    burst(b.x, b.y - 50, ['#ffe14d', '#ff9b2e', '#ffffff', '#e8423f'], 50, { up: 300, max: 500 });
-    const bonus = 60 + st.n * 20;
-    earn(bonus, b.x, b.y - 150, `ניצחת את השף! +$${bonus}`);
-  }
-}
-
-// ---------- צלחות של אויבים ----------
+// ---------- צלחות של הערס כשהוא כועס ----------
 export function enemyThrow(x, y, kind = 'plate', speed = 400) {
   const tx = st.px + rnd(-40, 40), ty = G.H - 50;
   const dx = tx - x, dy = ty - y, l = Math.hypot(dx, dy) || 1;
@@ -304,7 +301,7 @@ function updateEnemyPlates(dt) {
     e.spin += dt * 14; e.x += e.vx * dt; e.y += e.vy * dt;
     if (dist(e.x, e.y, st.px, G.H - 52) < 32) {
       e.dead = true; sfx.break(); sfx.thud(); G.shake = 0.25; st.hostFlash = 0.5;
-      burst(e.x, e.y, e.kind === 'pot' ? ['#5b6470', '#aab3bd', '#e8423f'] : ['#ffffff', '#c8d2dc'], 12);
+      burst(e.x, e.y, ['#ffffff', '#c8d2dc'], 12);
       const n = Math.min(5, S.money);
       earn(-n, st.px, G.H - 140, `${pick(OUCH)} -$${n}`);
       st.combo = 0;
@@ -316,17 +313,16 @@ function updateEnemyPlates(dt) {
 // ---------- צלחות של השחקן ----------
 function shatter(p) {
   sfx.break();
-  burst(p.x, p.y, ['#ffffff', '#c8d2dc', p.P.rim || '#9aa5b1'], 12, { floor: Math.max(p.y + 6, FY0) });
+  burst(p.x, p.y, ['#ffffff', '#c8d2dc', p.P.rim || '#9aa5b1'], 12, { floor: Math.max(p.y + 6, FY0 + rnd(0, 80)) });
 }
-export const targets = []; // מטרות נוספות מהמודולים: {test(p)->bool}
 function updatePlates(dt) {
   for (const p of st.pl) {
     p.spin += dt * 20;
     if (p.P.homing) {
-      let best = null, bd = 260;
-      for (const v of st.v) if (hittable(v) && v.type !== 'waiter') { const d = dist(p.x, p.y, v.x, v.y - 60); if (d < bd) { bd = d; best = v; } }
+      let best = null, bd = 240;
+      for (const it of allItems()) { const q = itemPos(it); const d = dist(p.x, p.y, q.x, q.y) - (it === st.special ? 80 : 0); if (d < bd) { bd = d; best = q; } }
       if (best) {
-        const dx = best.x - p.x, dy = best.y - 60 - p.y, l = Math.hypot(dx, dy) || 1;
+        const dx = best.x - p.x, dy = best.y - p.y, l = Math.hypot(dx, dy) || 1;
         p.vx += (dx / l) * 2400 * dt; p.vy += (dy / l) * 2400 * dt;
         const sp = Math.hypot(p.vx, p.vy); p.vx = (p.vx / sp) * PLATE_SPEED; p.vy = (p.vy / sp) * PLATE_SPEED;
       }
@@ -342,7 +338,6 @@ function updatePlates(dt) {
   st.pl = st.pl.filter((p) => !p.dead);
 }
 function collide(p) {
-  // יירוט צלחות אויב
   for (const e of st.ep) {
     if (!e.dead && dist(p.x, p.y, e.x, e.y) < p.r + 14) {
       e.dead = true; p.dead = true; shatter(p);
@@ -351,23 +346,15 @@ function collide(p) {
       return true;
     }
   }
+  if (waiterHit(p)) return true; // המלצר עובר לפני המדפים
   for (const t of targets) if (t.test && t.test(p)) return true;
-  // בוס
-  const b = st.boss;
-  if (b && b.state === 'fight') {
-    const hb = hitbox(b);
-    if (p.x > hb.x0 - p.r && p.x < hb.x1 + p.r && p.y > hb.y0 && p.y < hb.y1) {
-      hitBoss(p, p.x, p.y); p.dead = true; return true;
-    }
-  }
-  // נבלים מלפנים לאחור
-  const vs = st.v.filter((v) => hittable(v) && !p.hitSet.has(v)).sort((a, c) => c.y - a.y);
-  for (const v of vs) {
-    const hb = hitbox(v);
-    if (p.x > hb.x0 - p.r * 0.6 && p.x < hb.x1 + p.r * 0.6 && p.y > hb.y0 - p.r * 0.3 && p.y < hb.y1 - 6) {
-      if (v.onHit) v.onHit(p, p.x, p.y); else hitVillain(v, p, p.x, p.y);
-      p.hitSet.add(v);
-      if (!p.P.pierce) { p.dead = true; return true; }
+  if (cabinetHit(p)) return true;
+  for (const sh of st.shelves) {
+    for (const it of sh.items) {
+      if (it.alive && it.pop >= 1 && itemHit(it, p.x, p.y, p.r)) {
+        breakItem(it, p.P);
+        if (!p.P.pierce) { p.dead = true; return true; }
+      }
     }
   }
   return false;
@@ -379,7 +366,6 @@ function update(dt) {
   st.cool -= dt; st.hostFlash = Math.max(0, st.hostFlash - dt); st.hostBob = Math.max(0, st.hostBob - dt);
   st.comboT -= dt; if (st.comboT <= 0) st.combo = 0;
   st.talk.update(dt);
-  // תנועת השחקן
   let mx = 0;
   if (key('ArrowLeft', 'KeyA')) mx -= 1;
   if (key('ArrowRight', 'KeyD')) mx += 1;
@@ -387,33 +373,39 @@ function update(dt) {
   st.px = clamp(st.px + mx * 320 * dt, 60, G.W - 60);
 
   if (st.phase === 'intro' && st.t > 1.6) { st.phase = 'play'; st.t = 0; }
+  const blocked = hooks.some((h) => h.blocking && h.blocking(st));
   if (st.phase === 'play') {
-    const tempo = st.base + 40 * clamp(st.t / st.dur, 0, 1);
-    st.tempo = tempo; musicTempo(tempo);
-    const k = tempo / 100;
-    const blocked = hooks.some((h) => h.blocking && h.blocking(st));
     if (blocked) st.t -= dt; // הזמן עוצר בזמן אזעקה
-    if (!blocked) {
-      st.spawnT -= dt * k;
-      const maxV = Math.min(3 + st.n, 8);
-      if (st.spawnT <= 0 && st.v.filter((v) => v.type !== 'waiter').length < maxV) {
-        st.spawnT = clamp(2.3 - st.n * 0.12, 0.8, 2.3) * rnd(0.7, 1.2);
-        const r = Math.random();
-        spawnVillain(r < 0.4 ? 'thief' : r < 0.72 ? 'grease' : 'dine');
-      }
-      st.waiterT -= dt;
-      if (st.waiterT <= 0) { st.waiterT = rnd(5, 9) / k; spawnVillain('waiter'); }
-    }
+    musicTempo(st.base + 40 * clamp(st.t / st.dur, 0, 1));
     if (st.t >= st.dur && !blocked) {
       st.phase = 'boss'; st.t = 0;
-      for (const v of st.v) if (v.state !== 'flee' && v.type !== 'waiter') { v.state = 'flee'; v.t = 0; v.vx = (v.x < G.W / 2 ? -1 : 1) * 380; }
-      spawnBoss();
+      st.special = null;
+      spawnCabinet();
       musicTempo(st.base + 50);
     }
   }
+  // מדפים: תנועה, מלאי חדש, הפריט הנוצץ
+  for (const sh of st.shelves) {
+    placeShelf(sh);
+    for (const it of sh.items) it.pop = Math.min(1, it.pop + dt * 4);
+    if (st.phase === 'boss' || st.phase === 'end') { sh.L -= 380 * dt; continue; }
+    if (!sh.items.some((it) => it.alive)) {
+      sh.restockT += dt;
+      if (sh.restockT > 1.4) { sh.restockT = 0; stock(sh); sfx.pop(); }
+    }
+  }
+  st.shelves = st.shelves.filter((sh) => sh.L > -60);
+  if (st.phase === 'play' || (st.phase === 'boss' && st.cab && st.cab.state === 'fight')) {
+    st.specialT -= dt;
+    if (st.specialT <= 0 || !st.special || !st.special.alive) pickSpecial();
+  }
+  if (st.phase !== 'intro' && st.phase !== 'end') {
+    st.waiterT -= dt;
+    if (st.waiterT <= 0) { st.waiterT = rnd(5, 9) / (st.base / 100); spawnWaiter(); }
+  }
   hooks.forEach((h) => h.update && h.update(dt, st));
-  updateVillains(dt);
-  updateBoss(dt);
+  updateWaiters(dt);
+  updateCabinet(dt);
   updatePlates(dt);
   updateEnemyPlates(dt);
   updateFx(dt);
@@ -429,75 +421,89 @@ function endEvening(win) {
 }
 
 // ---------- ציור ----------
-function drawVillain(ctx, v) {
-  shadow(ctx, v.state === 'ko' ? v.x - 49 * (v.koSide || 1) : v.x, v.y, v.state === 'ko' ? 46 : v.hw);
-  let bob = 0;
-  if (v.state === 'walk' || v.state === 'run' || v.type === 'waiter') bob = -Math.abs(Math.sin(v.t * (v.type === 'dine' || v.type === 'waiter' ? 16 : 9))) * 4;
-  if (v.state === 'sit') bob = Math.sin(v.t * 6) * 1.5;
-  if (v.state === 'ko') {
-    sprite(ctx, v.img, v.x, v.y, { rot: -Math.PI / 2 * (v.koSide || 1), flash: v.flash });
-    drawStars(ctx, v.x - 84 * (v.koSide || 1), v.y - 22, G.t);
-    return;
-  }
-  sprite(ctx, v.img, v.x, v.y + bob, { flip: v.face < 0, rot: v.rot, flash: v.flash, flashColor: v.type === 'waiter' ? '#ff4040' : '#ffffff' });
-  if (v.state === 'hit' || v.state === 'flee') drawStars(ctx, v.x, v.y - 100, G.t, 3);
-  if (v.type === 'dine' && v.state === 'sit') { R(ctx, v.x - 18, v.y - 40, 36, 6, '#8a5a2b'); }
+function drawItem(ctx, it, x, y, ang) {
+  const gold = it === st.special;
+  const im = itemCanvas(it.type, gold);
+  const s = it.pop < 1 ? 0.3 + 0.7 * it.pop : 1;
+  ctx.save(); ctx.translate(Math.round(x), Math.round(y)); if (ang) ctx.rotate(ang); ctx.scale(s, s);
+  ctx.drawImage(im, Math.round(-it.w / 2), Math.round(-it.h / 2), it.w, it.h);
+  ctx.restore();
+  if (gold) sparkle(ctx, x, y, Math.max(it.w, it.h) * 0.75, G.t);
 }
-function drawBoss(ctx, b) {
-  shadow(ctx, b.x, b.y, 36);
-  const im = b.broken ? bossImg.broken : 'boss';
-  sprite(ctx, im, b.x, b.y, { flip: b.face < 0, rot: b.rot, flash: b.broken ? 0 : b.flash });
-  if (b.broken && b.flash > 0) sprite(ctx, im, b.x, b.y, { flip: b.face < 0, alpha: b.flash * 0.6 });
-  // סדקים במגן
-  if (!b.broken && b.shield < b.shieldMax) {
-    const sh = bossImg.shield, img = G.imgs.boss;
-    const sx = b.x + (sh.cx - img.width / 2) * (b.face < 0 ? -1 : 1), sy = b.y - img.height + sh.cy;
-    const k = 1 - b.shield / b.shieldMax;
-    ctx.strokeStyle = '#1a1020'; ctx.lineWidth = 2;
-    ctx.beginPath();
-    const n = Math.ceil(k * 6);
-    for (let i = 0; i < n; i++) {
-      const a = i * 2.1 + 0.4;
-      ctx.moveTo(Math.round(sx), Math.round(sy));
-      ctx.lineTo(Math.round(sx + Math.cos(a) * sh.r * 0.55), Math.round(sy + Math.sin(a) * sh.r * 0.55));
-      ctx.lineTo(Math.round(sx + Math.cos(a + 0.3) * sh.r * 0.95), Math.round(sy + Math.sin(a + 0.3) * sh.r * 0.95));
-    }
-    ctx.stroke();
+function drawShelf(ctx, sh) {
+  const c = Math.cos(sh.ang), s = Math.sin(sh.ang);
+  const W2 = sh.w / 2;
+  const toW = (lx, ly) => [sh.x + lx * c - ly * s, sh.y + lx * s + ly * c];
+  const hook = toW(0, -34), e1 = toW(-W2 + 8, -2), e2 = toW(W2 - 8, -2);
+  ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(sh.ax, 0); ctx.lineTo(hook[0], hook[1]); ctx.moveTo(e1[0], e1[1]); ctx.lineTo(hook[0], hook[1]); ctx.lineTo(e2[0], e2[1]); ctx.stroke();
+  ctx.fillStyle = '#c8961e'; ctx.fillRect(Math.round(hook[0]) - 2, Math.round(hook[1]) - 2, 4, 4);
+  ctx.save(); ctx.translate(Math.round(sh.x), Math.round(sh.y)); ctx.rotate(sh.ang);
+  R(ctx, -W2 - 2, -5, sh.w + 4, 10, '#1a1020');
+  R(ctx, -W2, -3, sh.w, 6, '#8a5a2b'); R(ctx, -W2, -3, sh.w, 2, '#a87444'); R(ctx, -W2, 2, sh.w, 1, '#5a3a1a');
+  for (let i = -W2 + 14; i < W2 - 6; i += 34) R(ctx, i, -1, 6, 1, '#6b4422');
+  R(ctx, -W2 + 6, 5, 4, 6, '#3a2a1a'); R(ctx, W2 - 10, 5, 4, 6, '#3a2a1a');
+  ctx.restore();
+  for (const it of sh.items) if (it.alive) { const q = itemPos(it); drawItem(ctx, it, q.x, q.y, q.ang); }
+}
+function drawCabinet(ctx, c) {
+  ctx.save();
+  ctx.translate(Math.round(c.x), Math.round(c.y));
+  if (c.rot) ctx.rotate(c.rot);
+  const w = c.w, h = c.h, x0 = -w / 2;
+  ctx.strokeStyle = '#3a3a44'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(x0 + 20, 0); ctx.lineTo(x0 + 20, -c.y - 10); ctx.moveTo(-x0 - 20, 0); ctx.lineTo(-x0 - 20, -c.y - 10); ctx.stroke();
+  R(ctx, x0 - 4, -4, w + 8, h + 8, '#1a1020');
+  R(ctx, x0, 0, w, h, '#5a2e14'); R(ctx, x0 + 8, 14, w - 16, h - 22, '#3a2416');
+  R(ctx, x0 - 8, -10, w + 16, 14, '#1a1020'); R(ctx, x0 - 6, -8, w + 12, 10, '#8a4b22');
+  for (let i = 0; i < w; i += 12) R(ctx, x0 + i, -6, 6, 3, '#1d4fa3');
+  const rows = 3;
+  for (let r = 1; r <= rows; r++) { const y = 18 + r * ((h - 30) / rows) - 4; R(ctx, x0 + 8, y, w - 16, 5, '#8a5a2b'); R(ctx, x0 + 8, y, w - 16, 1, '#a87444'); }
+  ctx.restore();
+  if (c.state !== 'dead') for (const it of c.items) if (it.alive) { const q = itemPos(it); drawItem(ctx, it, q.x, q.y, 0); }
+  // דלתות זכוכית – כל דלת נפתחת על הציר החיצוני
+  ctx.save(); ctx.translate(Math.round(c.x), Math.round(c.y));
+  if (c.rot) ctx.rotate(c.rot);
+  const dw = (w - 16) / 2, open = c.door;
+  for (const side of [-1, 1]) {
+    const hingeX = side * (w / 2 - 8);
+    const ww = Math.max(4, dw * (1 - open * 0.88));
+    const x = side < 0 ? hingeX : hingeX - ww;
+    R(ctx, x, 12, ww, h - 18, '#4a2a12');
+    ctx.fillStyle = `rgba(190,227,240,${0.55 - open * 0.25})`; ctx.fillRect(Math.round(x + 4), 16, Math.round(Math.max(0, ww - 8)), h - 26);
+    if (ww > 20) { ctx.fillStyle = 'rgba(255,255,255,0.7)'; for (let k = 0; k < 2; k++) ctx.fillRect(Math.round(x + 8 + k * 10), 24 + k * 6, 3, 40); }
+    R(ctx, side < 0 ? x + ww - 6 : x + 3, h / 2, 3, 10, '#ffd83d');
   }
-  // פסי מגן וחיים
-  const w = 160, x = b.x - w / 2, y = b.y - 128;
-  R(ctx, x - 2, y - 2, w + 4, 14, '#1a1020');
-  if (!b.broken) { R(ctx, x, y, w * (b.shield / b.shieldMax), 10, '#6ead97'); txt(ctx, 'מגן', b.x, y - 12, { size: 13 }); }
-  else { R(ctx, x, y, w * Math.max(0, b.hp / b.hpMax), 10, '#e8423f'); txt(ctx, 'השף הרשע', b.x, y - 12, { size: 13 }); }
+  ctx.restore();
+  if (c.state === 'fight') txt(ctx, c.door > 0.85 ? 'פתוח! עכשיו!' : 'סגור…', c.x, c.y + c.h + 20, { size: 16, color: c.door > 0.85 ? '#7bd23f' : '#bfe3f0' });
+}
+function drawWaiter(ctx, v) {
+  shadow(ctx, v.x, v.y, 24);
+  const bob = -Math.abs(Math.sin(v.t * 16)) * 4;
+  sprite(ctx, 'waiter', v.x, v.y + bob, { flip: v.face < 0, rot: v.rot, flash: v.flash, flashColor: '#ff4040' });
 }
 
 function draw(ctx, dt) {
   ctx.drawImage(bg, 0, 0, G.W, G.H);
   hooks.forEach((h) => h.drawBack && h.drawBack(ctx, st));
-  // לפי עומק
-  const list = st.v.map((v) => ({ y: v.y, f: () => drawVillain(ctx, v) }));
-  if (st.boss) list.push({ y: st.boss.y, f: () => drawBoss(ctx, st.boss) });
+  for (const sh of st.shelves) drawShelf(ctx, sh);
+  if (st.cab) drawCabinet(ctx, st.cab);
+  const list = st.v.map((v) => ({ y: v.y, f: () => drawWaiter(ctx, v) }));
   hooks.forEach((h) => h.drawList && h.drawList(ctx, st, list));
   list.sort((a, b) => a.y - b.y).forEach((o) => o.f());
-  // שחקן
   const bob = st.hostBob > 0 ? -6 : Math.sin(G.t * 3) * 1;
   shadow(ctx, st.px, G.H - 4, 26);
   sprite(ctx, 'host', st.px, G.H - 2 + bob, { flash: st.hostFlash > 0 ? 0.7 : 0, flashColor: '#ff4040' });
-  // צלחות
   for (const p of st.pl) drawPlate(ctx, p.img, p.x, p.y, p.spin, p.r / 14);
-  for (const e of st.ep) {
-    if (e.kind === 'pot') {
-      ctx.save(); ctx.translate(Math.round(e.x), Math.round(e.y)); ctx.rotate(e.spin * 0.5);
-      R(ctx, -12, -8, 24, 16, '#1a1020'); R(ctx, -10, -6, 20, 12, '#5b6470'); R(ctx, -10, -6, 20, 3, '#8a95a3'); R(ctx, 10, -3, 8, 4, '#1a1020');
-      ctx.restore();
-    } else drawPlate(ctx, e.img, e.x, e.y, e.spin);
-  }
+  for (const e of st.ep) drawPlate(ctx, e.img, e.x, e.y, e.spin);
   hooks.forEach((h) => h.drawFront && h.drawFront(ctx, st));
   drawFx(ctx);
-  // כוונת
   drawAim(ctx);
-  st.talk.draw(ctx, (w) => hooks.reduce((r, h) => r || (h.talkPos && h.talkPos(w, st)), null) || { x: st.px, y: G.H - 110 });
-  // HUD
+  st.talk.draw(ctx, (w, ref) => {
+    if (ref) return { x: clamp(ref.x, 40, G.W - 40), y: ref.y - 104 };
+    if (w === 'host') return { x: st.px, y: G.H - 104 };
+    return hooks.reduce((r, h) => r || (h.talkPos && h.talkPos(w, st)), null);
+  });
   hud(ctx, dt, { back: leave });
   drawTimer(ctx);
   hooks.forEach((h) => h.drawUI && h.drawUI(ctx, st));
@@ -534,7 +540,7 @@ function drawTimer(ctx) {
   R(ctx, x - 2, y - 2, w + 4, 18, '#1a1020'); R(ctx, x, y, w, 14, '#2a1a3a');
   let k = 0, col = '#ffd83d', label = `ערב ${st.n}`;
   if (st.phase === 'play') k = clamp(st.t / st.dur, 0, 1);
-  else if (st.phase === 'boss' || st.phase === 'end') { k = 1; col = '#e8423f'; label = `ערב ${st.n} – בוס!`; }
+  else if (st.phase === 'boss' || st.phase === 'end') { k = 1; col = '#e8423f'; label = `ערב ${st.n} – המדף הגדול`; }
   R(ctx, x, y, w * k, 14, col);
   txt(ctx, label, G.W / 2, y + 30, { size: 16 });
   if (st.combo >= 2) txt(ctx, `קומבו x${st.combo}`, G.W / 2, y + 52, { size: 15, color: '#7bd23f' });
@@ -545,12 +551,12 @@ function drawEnd(ctx) {
   R(ctx, x - 4, y - 4, w + 8, h + 8, '#1a1020'); R(ctx, x, y, w, h, '#fff6dc');
   for (let i = 0; i < w; i += 12) { R(ctx, x + i, y, 6, 6, '#1d4fa3'); R(ctx, x + i, y + h - 6, 6, 6, '#1d4fa3'); }
   txt(ctx, st.over.win ? 'סחתיין! הערב נגמר' : 'הערב נגמר', G.W / 2, y + 40, { size: 28, color: '#1d4fa3', outline: '#fff6dc' });
-  txt(ctx, `פגיעות: ${st.hits}   •   בול במטרה: ${st.heads}`, G.W / 2, y + 90, { size: 18, color: '#2a1a10', outline: false });
+  txt(ctx, `שבירות: ${st.breaks}   •   בול במטרה: ${st.heads}`, G.W / 2, y + 90, { size: 18, color: '#2a1a10', outline: false });
   txt(ctx, `בקופה: $${S.money}`, G.W / 2, y + 122, { size: 20, color: '#8a5a2b', outline: false });
   const bw = (w - 50) / 2;
   btn(ctx, x + w - bw - 20, y + h - 70, bw, 46, `ערב ${S.evening} ▶`, () => startEvening(), { color: '#1f9e5a', light: '#3fc07a' });
   btn(ctx, x + 20, y + h - 70, bw, 46, 'לרחוב 🚶', leave, { color: '#8a3a2a', light: '#b05a40' });
 }
 
-export function initTavernArt() { if (G.imgs.boss) bossImg = bossVariants(G.imgs.boss); }
-export { spawnVillain, hitbox, startEvening };
+export function initTavernArt() {}
+export { startEvening };
