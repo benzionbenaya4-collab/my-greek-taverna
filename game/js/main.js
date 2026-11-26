@@ -5,6 +5,8 @@ import { initAudio, setMuted } from './audio.js';
 import { register, go, drawFade } from './game.js';
 import { arsState } from './scenes/ars.js';
 import './scenes/savta.js';
+import { domeState } from './scenes/dome.js';
+import { boxState } from './scenes/boxes.js';
 import { hub, hubState } from './scenes/hub.js';
 import { shop } from './scenes/shop.js';
 import { tavern, initTavernArt, tav } from './scenes/tavern.js';
@@ -23,7 +25,7 @@ async function boot() {
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(true); });
   addEventListener('pagehide', () => save(true));
   const ld = document.getElementById('loading'); if (ld) ld.remove();
-  if (location.hash.includes('dev')) window.__T = { G, S: () => S, go, tav, ars: arsState, hub: hubState };
+  if (location.hash.includes('dev')) window.__T = { G, S: () => S, go, tav, ars: arsState, hub: hubState, dome: domeState, box: boxState };
   go('hub');
   let last = performance.now();
   const frame = (now) => {

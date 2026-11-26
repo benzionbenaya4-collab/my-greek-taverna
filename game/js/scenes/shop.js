@@ -23,7 +23,7 @@ export function openBox(x, y) {
   burst(x, y, ['#ffd83d', '#7a4fd6', '#ff6fb5', '#2fc6d8', '#ffffff'], 30, { up: 220 });
   if (missing.length && Math.random() < 0.6) {
     const r = pick(missing);
-    S.owned.push(r); save();
+    S.owned.push(r); S.plate = r; save();
     banner(`${pick(SLANG)} ${PLATES[r].name}!`, 2.4, { sub: PLATES[r].desc, color: '#ffd83d' });
     return r;
   }

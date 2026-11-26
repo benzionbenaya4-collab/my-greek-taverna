@@ -39,7 +39,7 @@ function startEvening() {
   st.base = 100 + (n - 1) * 10;
   hooks.forEach((h) => h.start && h.start(st));
   clearBanners();
-  banner(`ערב ${n}`, 1.8, { sub: n === 1 ? 'זרוק צלחות על הנבלים! פגיעה בראש = $10' : 'הקצב מאיץ… יאללה!' });
+  banner(`ערב ${n}`, 1.8, { sub: n === 1 ? 'זרוק צלחות על הנבלים! פגיעה בראש = $10' : 'יאללה! הקצב מאיץ…' });
   musicStart(st.base); musicTempo(st.base); musicVolume(1);
 }
 
@@ -224,10 +224,13 @@ export function hitVillain(v, p, x, y, byAlly) {
   st.hits++; S.stats.hits++;
   if (head || wasKo) {
     st.heads++; S.stats.heads++;
+    st.headStreak = (st.headStreak || 0) + 1;
+    if (st.headStreak >= 2) floater(st.headStreak >= 4 ? 'סחתיין!' : 'וואלה בול!', v.x, v.y - 150, { size: 24, color: '#ff9b2e' });
     const n = reward(10, P);
     earn(n, v.x, v.y - 120, `בול במטרה! $${n}`, '#ffe14d');
     ring(x, y, '#ffe14d', 46);
   } else {
+    st.headStreak = 0;
     const n = reward(v.type === 'dine' && v.state === 'run' ? 6 : 4, P);
     earn(n, v.x, v.y - 116, `פגיעה! $${n}`, '#fffbea');
   }
@@ -389,6 +392,7 @@ function update(dt) {
     st.tempo = tempo; musicTempo(tempo);
     const k = tempo / 100;
     const blocked = hooks.some((h) => h.blocking && h.blocking(st));
+    if (blocked) st.t -= dt; // הזמן עוצר בזמן אזעקה
     if (!blocked) {
       st.spawnT -= dt * k;
       const maxV = Math.min(3 + st.n, 8);
