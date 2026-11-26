@@ -62,8 +62,9 @@ export const hub = {
     }
     const ml = Math.hypot(mx, my);
     if (ml > 1) { mx /= ml; my /= ml; }
-    st.px = clamp(st.px + mx * SPEED * dt, 40, HUB.W - 40);
-    st.py = clamp(st.py + my * SPEED * 0.6 * dt, GY + 34, G.H - 8);
+    const sp = st.dodge ? SPEED * 1.3 : SPEED;
+    st.px = clamp(st.px + mx * sp * dt, 40, HUB.W - 40);
+    st.py = clamp(st.py + my * sp * (st.dodge ? 0.85 : 0.6) * dt, GY + 34, G.H - 8);
     st.moving = ml > 0.1;
     if (Math.abs(mx) > 0.1) st.face = mx < 0 ? -1 : 1;
     if (st.moving) st.walk += dt * 10; else st.walk = 0;
@@ -102,6 +103,7 @@ export const hub = {
       ctx.fillStyle = '#1a1020';
       ctx.fillRect(g.x - 8, g.y - f, 6, 2); ctx.fillRect(g.x + 2, g.y - f, 6, 2); ctx.fillRect(g.x - 2, g.y + 1, 4, 2);
     }
+    drawMarks(ctx);
     // רשימת ציור לפי עומק
     const list = [];
     const a = st.ars;
@@ -120,7 +122,7 @@ export const hub = {
     ctx.restore();
 
     // HUD
-    if (st.hitFlash > 0) { ctx.fillStyle = `rgba(255,40,40,${st.hitFlash})`; ctx.fillRect(0, 0, G.W, G.H); }
+    if (st.hitFlash > 0) { ctx.fillStyle = `rgba(255,40,40,${st.hitFlash * 0.45})`; ctx.fillRect(0, 0, G.W, G.H); }
     hud(ctx, dt);
     const n = nearest();
     if (st.dodge) {
@@ -168,7 +170,8 @@ function updateArs(dt) {
   a.t += dt; a.flash = Math.max(0, a.flash - dt * 2);
   const home = arsHome();
   if (a.mode === 'run' || a.mode === 'dodge' || a.mode === 'return') {
-    const tx = a.mode === 'return' ? home.x : clamp(st.px + (st.px > HUB.bench ? 260 : -260) * (a.side || 1), 60, HUB.W - 60);
+    const sd = st.px - st.camX < G.W / 2 ? 1 : -1;
+    const tx = a.mode === 'return' ? home.x : clamp(st.px + sd * Math.min(330, G.W * 0.45), st.camX + 50, st.camX + G.W - 50);
     const ty = a.mode === 'return' ? home.y : clamp(st.py - 10, GY + 34, G.H - 8);
     const dx = tx - a.x, dy = ty - a.y, l = Math.hypot(dx, dy);
     const sp = a.mode === 'dodge' ? 160 : 380;
@@ -181,17 +184,16 @@ function updateArs(dt) {
   if ((a.mode === 'dodge' && st.dodge) || angryNear) {
     a.throwT -= dt;
     if (a.throwT <= 0) {
-      a.throwT = a.mode === 'dodge' ? rnd(0.45, 0.75) : rnd(1.3, 1.9);
+      a.throwT = a.mode === 'dodge' ? rnd(0.55, 0.8) : rnd(1.3, 1.9);
       enemyThrow(a.x, a.y - 70);
       if (Math.random() < 0.3) st.talk.now('ars', pick(ARS.angry), 1.4);
     }
   }
 }
 function enemyThrow(x, y) {
-  // מכוון לשחקן עם חיזוי קל
-  const tx = st.px + rnd(-30, 30), ty = st.py - 50 + rnd(-20, 20);
-  const dx = tx - x, dy = ty - y, l = Math.hypot(dx, dy) || 1, sp = 430;
-  st.enemy.push({ x, y, vx: (dx / l) * sp, vy: (dy / l) * sp, spin: 0, life: (l + 220) / sp, img: plateCanvas('white') });
+  // צלחת בקשת: נוחתת איפה שעמדת – הסימון האדום מראה איפה, תזוז!
+  const tx = clamp(st.px + rnd(-25, 25), 40, HUB.W - 40), ty = clamp(st.py + rnd(-12, 12), GY + 34, G.H - 8);
+  st.enemy.push({ sx: x, sy: y, tx, ty, x, y, t: 0, T: rnd(0.95, 1.15), spin: 0, img: plateCanvas('white') });
   sfx.throw();
 }
 
@@ -204,18 +206,31 @@ function updatePlates(dt) {
   }
   st.plates = st.plates.filter((p) => !p.done);
   for (const p of st.enemy) {
-    p.spin += dt * 16; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
-    if (dist(p.x, p.y, st.px, st.py - 48) < 30) {
-      p.dead = true; sfx.break(); burst(p.x, p.y, ['#ffffff', '#c8d2dc', '#9aa5b1'], 12, { floor: st.py });
-      st.hitFlash = 0.45; sfx.thud(); G.shake = 0.25;
-      if (st.dodge) st.dodge.hits++;
-      const lose = Math.min(5, S.money);
-      earn(-lose, st.px, st.py - 120, `${pick(OUCH)} -$${lose}`);
-    } else if (p.life <= 0) {
-      p.dead = true; sfx.break(); burst(p.x, p.y, ['#ffffff', '#c8d2dc'], 10, { floor: p.y + 10 });
+    p.spin += dt * 16; p.t += dt;
+    const u = Math.min(1, p.t / p.T);
+    p.x = p.sx + (p.tx - p.sx) * u;
+    p.y = p.sy + (p.ty - 20 - p.sy) * u - Math.sin(Math.PI * u) * 140;
+    if (u >= 1) {
+      p.dead = true; sfx.break();
+      burst(p.tx, p.ty - 20, ['#ffffff', '#c8d2dc', '#9aa5b1'], 12, { floor: p.ty });
+      const dx = st.px - p.tx, dy = (st.py - p.ty) * 2;
+      if (Math.hypot(dx, dy) < 40) {
+        st.hitFlash = 0.45; sfx.thud(); G.shake = 0.25;
+        if (st.dodge) st.dodge.hits++;
+        const lose = Math.min(5, S.money);
+        earn(-lose, st.px, st.py - 120, `${pick(OUCH)} -$${lose}`);
+      }
     }
   }
   st.enemy = st.enemy.filter((p) => !p.dead);
+}
+function drawMarks(ctx) {
+  for (const p of st.enemy) {
+    const u = Math.min(1, p.t / p.T);
+    ctx.strokeStyle = `rgba(232,66,63,${0.4 + u * 0.6})`; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(Math.round(p.tx), Math.round(p.ty), 40 * (1.3 - u * 0.3), 12 * (1.3 - u * 0.3), 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = `rgba(232,66,63,${0.12 + u * 0.2})`; ctx.fill();
+  }
 }
 
 function updateDodge(dt) {
@@ -336,3 +351,4 @@ function actions() {
   }
   return out;
 }
+export const hubState = st;

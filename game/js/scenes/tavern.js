@@ -189,6 +189,7 @@ function updateVillains(dt) {
 
 function hitbox(v) {
   const h = 98;
+  if (v.state === 'ko') { const k = v.koSide || 1, xa = v.x, xb = v.x - h * k; return { x0: Math.min(xa, xb), x1: Math.max(xa, xb), y0: v.y - 42, y1: v.y + 42, head: v.y + 99 }; }
   return { x0: v.x - v.hw, x1: v.x + v.hw, y0: v.y - h, y1: v.y, head: v.y - h + h * v.head };
 }
 export function hittable(v) { return v.state !== 'hit' && v.state !== 'flee'; }
@@ -425,13 +426,13 @@ function endEvening(win) {
 
 // ---------- ציור ----------
 function drawVillain(ctx, v) {
-  shadow(ctx, v.x, v.y, v.hw);
+  shadow(ctx, v.state === 'ko' ? v.x - 49 * (v.koSide || 1) : v.x, v.y, v.state === 'ko' ? 46 : v.hw);
   let bob = 0;
   if (v.state === 'walk' || v.state === 'run' || v.type === 'waiter') bob = -Math.abs(Math.sin(v.t * (v.type === 'dine' || v.type === 'waiter' ? 16 : 9))) * 4;
   if (v.state === 'sit') bob = Math.sin(v.t * 6) * 1.5;
   if (v.state === 'ko') {
     sprite(ctx, v.img, v.x, v.y, { rot: -Math.PI / 2 * (v.koSide || 1), flash: v.flash });
-    drawStars(ctx, v.x + 44 * (v.koSide || 1), v.y - 20, G.t);
+    drawStars(ctx, v.x - 84 * (v.koSide || 1), v.y - 22, G.t);
     return;
   }
   sprite(ctx, v.img, v.x, v.y + bob, { flip: v.face < 0, rot: v.rot, flash: v.flash, flashColor: v.type === 'waiter' ? '#ff4040' : '#ffffff' });
